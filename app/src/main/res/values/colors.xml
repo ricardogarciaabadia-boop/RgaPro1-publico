@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="rga_navy">#0C2343</color>
+    <color name="rga_blue">#1985E0</color>
+    <color name="rga_background">#F7F9FC</color>
+    <color name="rga_surface">#FFFFFF</color>
+    <color name="rga_text">#1C2736</color>
+    <color name="rga_muted">#677384</color>
+    <color name="rga_line">#E1E6ED</color>
+    <color name="rga_success">#168A5B</color>
+    <color name="rga_warning">#B7791F</color>
+    <color name="rga_danger">#C73A3A</color>
+</resources>
