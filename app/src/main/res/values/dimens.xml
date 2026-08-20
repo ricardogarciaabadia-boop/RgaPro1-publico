@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="rga_space_xs">4dp</dimen>
+    <dimen name="rga_space_sm">8dp</dimen>
+    <dimen name="rga_space_md">16dp</dimen>
+    <dimen name="rga_space_lg">24dp</dimen>
+    <dimen name="rga_radius_sm">12dp</dimen>
+    <dimen name="rga_radius_md">16dp</dimen>
+    <dimen name="rga_radius_lg">20dp</dimen>
+</resources>
