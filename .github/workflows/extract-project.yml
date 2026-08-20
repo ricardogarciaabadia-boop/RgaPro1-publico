@@ -19,9 +19,18 @@ jobs:
           mkdir -p /tmp/project
           unzip -o Comprimido.zip -d /tmp/project
 
-          # Copy the ZIP contents into the repository, preserving folders.
-          # The ZIP is kept temporarily so the extraction can be checked.
-          cp -a /tmp/project/. .
+          # The ZIP contains the scripts directory in lowercase.
+          # Normalize it to the requested Scripts/ directory.
+          if [ -d /tmp/project/scripts ]; then
+            mkdir -p Scripts
+            cp -a /tmp/project/scripts/. Scripts/
+          fi
+
+          # Copy the Android app while preserving the existing app/ structure.
+          if [ -d /tmp/project/app ]; then
+            mkdir -p app
+            cp -a /tmp/project/app/. app/
+          fi
 
           git status --short
 
@@ -29,11 +38,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app Scripts . 2>/dev/null || true
+          git add app Scripts
           git reset -- Comprimido.zip .github/workflows/extract-project.yml 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No new files to commit."
           else
-            git commit -m "Extract public project folders"
+            git commit -m "Extract app and Scripts folders"
             git push
           fi
