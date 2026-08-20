@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- RgaPro logo: dark navy shield, electric-blue outline, RGA / PRO wordmark and protected-family mark. -->
+    <path android:fillColor="#0B1F45" android:pathData="M12,4 L96,4 Q104,4 104,12 L104,66 Q104,91 54,104 Q4,91 4,66 L4,12 Q4,4 12,4 Z" />
+    <path android:fillColor="#1199F4" android:pathData="M10,18 L10,11 Q10,8 13,8 L95,8 Q98,8 98,11 L98,18 L93,18 L93,13 L15,13 L15,18 Z" />
+    <path android:fillColor="#0E8FF0" android:pathData="M14,22 L14,15 L18,15 L18,21 Q28,14 40,12 Q54,9 68,13 Q80,16 90,22 L90,27 Q78,20 67,18 Q53,15 40,18 Q26,20 18,28 L14,28 Z" />
+
+    <!-- RGA -->
+    <path android:fillColor="#FFFFFF" android:pathData="M16,31 L35,31 Q42,31 42,38 Q42,44 36,46 L43,55 L34,55 L27,47 L24,47 L24,55 L16,55 Z M24,37 L24,42 L33,42 Q35,42 35,39 Q35,37 33,37 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M44,31 L61,31 Q69,31 69,39 L69,47 Q69,55 61,55 L44,55 Z M52,37 L52,49 L60,49 Q61,49 61,47 L61,39 Q61,37 60,37 Z" />
+    <path android:fillColor="#1098F4" android:pathData="M68,31 L88,31 L88,37 L76,37 L76,41 L85,41 L85,47 L76,47 L76,55 L68,55 Z" />
+
+    <path android:fillColor="#16A8F8" android:pathData="M22,60 L86,60 L86,63 L22,63 Z" />
+
+    <!-- PRO -->
+    <path android:fillColor="#0B9CF5" android:pathData="M29,68 L40,68 Q46,68 46,74 Q46,80 40,80 L35,80 L35,87 L29,87 Z M35,73 L35,76 L39,76 Q40,76 40,74.5 Q40,73 39,73 Z" />
+    <path android:fillColor="#0B9CF5" android:pathData="M48,68 L60,68 Q66,68 66,74 Q66,78 62,79 L67,87 L60,87 L56,80 L54,80 L54,87 L48,87 Z M54,73 L54,76 L59,76 Q60,76 60,74.5 Q60,73 59,73 Z" />
+    <path android:fillColor="#0B9CF5" android:pathData="M69,68 L80,68 Q86,68 86,74 L86,81 Q86,87 80,87 L69,87 Z M75,73 L75,82 L79,82 Q80,82 80,80 L80,75 Q80,73 79,73 Z" />
+
+    <!-- Protected family / security mark -->
+    <path android:fillColor="#FFFFFF" android:pathData="M54,90 Q54,84 60,84 Q66,84 66,90 L66,96 Q66,102 60,104 Q54,102 54,96 Z" />
+    <path android:fillColor="#0B1F45" android:pathData="M57,90 Q57,87 60,87 Q63,87 63,90 L63,97 Q60,100 57,97 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M43,92 Q43,87 48,87 Q53,87 53,92 L53,98 Q48,101 43,98 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M67,92 Q67,87 72,87 Q77,87 77,92 L77,98 Q72,101 67,98 Z" />
+    <path android:fillColor="#0B8FF2" android:pathData="M58,94 L60,96 L64,91 L66,93 L60,100 L56,96 Z" />
+
+    <!-- Lower shield contour -->
+    <path android:fillColor="#0A68D8" android:pathData="M8,54 Q8,82 54,98 Q100,82 100,54 L96,54 Q96,78 54,93 Q12,78 12,54 Z" />
+</vector>
