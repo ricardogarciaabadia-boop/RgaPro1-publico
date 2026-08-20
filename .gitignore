@@ -1,0 +1,29 @@
+# Local/build output
+.gradle/
+.idea/
+local.properties
+build/
+*/build/
+*.apk
+*.aab
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+
+# Archives/source bundles
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# OS/editor files
+.DS_Store
+Thumbs.db
