@@ -28,6 +28,9 @@ jobs:
       - name: Apply OCR taxonomy guard
         run: python Scripts/apply_ocr_taxonomy_guard.py
 
+      - name: Apply final policy cleanup
+        run: python Scripts/apply_policy_cleanup_final.py
+
       - name: Persist generated OCR fixes
         if: github.event_name == 'push'
         run: |
