@@ -6,10 +6,12 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Product-aware parser for Ocaso policy OCR. Never promotes unlabeled OCR numbers to policy number. */
+/** Product-aware parser for Ocaso policy OCR. Only promotes labelled policy data. */
 public final class PolicyOcrParser {
     private static final Pattern POLICY_NUMBER = Pattern.compile("(?im)(?:N[º°.]?\\s*(?:DE\\s*)?P[ÓO]LIZA|N[ÚU]M(?:ERO)?\\s*(?:DE\\s*)?P[ÓO]LIZA|P[ÓO]LIZA\\s*(?:N[º°.]?|N[UÚ]M(?:ERO)?))\\s*[:#-]?\\s*([A-Z0-9][A-Z0-9./_-]{4,})\\b");
     private static final Pattern DNI = Pattern.compile("\\b(?:[0-9]{8}[A-Z]|[XYZ][0-9]{7}[A-Z])\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern EXPIRY = Pattern.compile("(?im)(?:FECHA\\s+DE\\s+)?(?:VENCIMIENTO|VENCIMIENTO\\s+DE\\s+LA\\s+P[ÓO]LIZA|FIN\\s+DE\\s+VIGENCIA|VIGENCIA\\s+HASTA|VALIDEZ\\s+HASTA|HASTA)\\s*[:#-]?\\s*(\\d{1,2}[./-]\\d{1,2}[./-]\\d{2,4})\\b");
+    private static final Pattern DATE = Pattern.compile("\\b(\\d{1,2}[./-]\\d{1,2}[./-]\\d{2,4})\\b");
     private PolicyOcrParser() {}
 
     public static JSONObject parse(String raw) {
@@ -20,6 +22,8 @@ public final class PolicyOcrParser {
             if (!product.isEmpty()) out.put("type", product);
             String number = firstPolicyNumber(text);
             if (!number.isEmpty()) out.put("number", number);
+            String expiry = firstExpiry(text);
+            if (!expiry.isEmpty()) out.put("expiry", expiry);
             copy(out, extractHolder(text), "holder", "holderDni", "identityType");
             if ("Decesos Integral".equals(product)) {
                 JSONArray insureds = extractDecesosInsureds(text);
@@ -52,6 +56,27 @@ public final class PolicyOcrParser {
         return "";
     }
 
+    private static String firstExpiry(String text) {
+        Matcher labelled = EXPIRY.matcher(text == null ? "" : text);
+        while (labelled.find()) {
+            String d = normalizeDate(labelled.group(1));
+            if (isPlausibleDate(d)) return d;
+        }
+        return "";
+    }
+
+    private static boolean isPlausibleDate(String value) {
+        Matcher m = DATE.matcher(value == null ? "" : value);
+        if (!m.matches()) return false;
+        String[] p = value.split("/");
+        if (p.length != 3) return false;
+        try {
+            int day = Integer.parseInt(p[0]), month = Integer.parseInt(p[1]), year = Integer.parseInt(p[2]);
+            if (year < 100) year += 2000;
+            return day >= 1 && day <= 31 && month >= 1 && month <= 12 && year >= 2000 && year <= 2100;
+        } catch (Exception e) { return false; }
+    }
+
     private static JSONObject extractHolder(String text) throws Exception {
         JSONObject out = new JSONObject();
         String[] lines = text.replace('\r', '\n').split("\\n");
@@ -60,7 +85,7 @@ public final class PolicyOcrParser {
             if (!line.toUpperCase(Locale.ROOT).contains("TOMADOR")) continue;
             String name = line.replaceFirst("(?i).*TOMADOR(?: DEL SEGURO)?\\s*:?\\s*", "").trim();
             if (name.isEmpty() || name.toUpperCase(Locale.ROOT).contains("DOMICILIO")) if (i + 1 < lines.length) name = clean(lines[i + 1]);
-            if (!name.isEmpty() && !name.matches(".*\\d{5,}.*") && !name.toUpperCase(Locale.ROOT).contains("DOMICILIO")) out.put("holder", name);
+            if (looksLikePersonName(name)) out.put("holder", name);
             StringBuilder block = new StringBuilder();
             for (int j = i; j < Math.min(lines.length, i + 7); j++) block.append(lines[j]).append('\n');
             Matcher id = DNI.matcher(block.toString().toUpperCase(Locale.ROOT));
@@ -82,28 +107,44 @@ public final class PolicyOcrParser {
         if (start < 0) return out;
         int end = upper.indexOf("GARANTIAS", start);
         if (end < 0) end = upper.indexOf("GARANTÍAS", start);
-        if (end < 0) end = Math.min(text.length(), start + 5000);
+        if (end < 0) end = Math.min(text.length(), start + 8000);
         String[] lines = text.substring(start, Math.min(end, text.length())).replace('\r', '\n').split("\\n");
-        Pattern row = Pattern.compile("^\\s*(\\d{3})\\s+(\\d{8}[A-Z]|[XYZ]\\d{7}[A-Z])\\s+(.+?)\\s+(\\d{1,2}/\\d{1,2}/\\d{4})\\s+([A-Z])(?:\\s+(\\d{1,2}/\\d{1,2}/\\d{4}))?\\s*$", Pattern.CASE_INSENSITIVE);
+        Pattern row = Pattern.compile("^\\s*(\\d{1,3})[.)]?\\s+(?:.*?\\s+)?(\\d{8}[A-Z]|[XYZ]\\d{7}[A-Z])\\s+(.+?)\\s+(\\d{1,2}[./-]\\d{1,2}[./-]\\d{4})(?:\\s+([MF]))?(?:\\s+(\\d{1,2}[./-]\\d{1,2}[./-]\\d{4}))?\\s*$", Pattern.CASE_INSENSITIVE);
         for (String rawLine : lines) {
-            Matcher m = row.matcher(clean(rawLine));
+            String line = clean(rawLine);
+            Matcher m = row.matcher(line);
             if (!m.matches()) continue;
+            String name = clean(m.group(3));
+            String identity = m.group(2).toUpperCase(Locale.ROOT);
+            if (!looksLikePersonName(name) || !DNI.matcher(identity).matches()) continue;
             JSONObject person = new JSONObject();
             person.put("insuredIndex", Integer.parseInt(m.group(1)));
-            person.put("name", clean(m.group(3)));
-            person.put("holder", clean(m.group(3)));
-            person.put("identityNumber", m.group(2).toUpperCase(Locale.ROOT));
-            person.put("identityType", m.group(2).toUpperCase(Locale.ROOT).matches("[XYZ].*") ? "NIE" : "DNI");
+            person.put("name", name);
+            person.put("holder", name);
+            person.put("identityNumber", identity);
+            person.put("identityType", identity.matches("[XYZ].*") ? "NIE" : "DNI");
             person.put("birthDate", normalizeDate(m.group(4)));
-            person.put("sex", m.group(5).toUpperCase(Locale.ROOT));
+            if (m.group(5) != null) person.put("sex", m.group(5).toUpperCase(Locale.ROOT));
             if (m.group(6) != null) person.put("effectiveDeathDate", normalizeDate(m.group(6)));
             out.put(person);
         }
         return out;
     }
 
+    private static boolean looksLikePersonName(String value) {
+        String x = clean(value);
+        if (x.length() < 5 || x.matches(".*\\d.*")) return false;
+        String u = x.toUpperCase(Locale.ROOT);
+        String[] blocked = {"GARANTIAS", "GARANTÍAS", "ASEGURADO", "EN CASO", "HEREDEROS", "PR. PPAL", "PR.COMP", "TIPO DE INTERES", "TIPO DE INTERÉS", "AGENTE", "OFICINA", "DOMICILIO", "SEGURO"};
+        for (String b : blocked) if (u.contains(b)) return false;
+        String[] words = x.split("\\s+");
+        int alphaWords = 0;
+        for (String w : words) if (w.matches("[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{2,}")) alphaWords++;
+        return alphaWords >= 2;
+    }
+
     private static void copy(JSONObject dst, JSONObject src, String... keys) throws Exception { for (String k : keys) if (src.has(k)) dst.put(k, src.get(k)); }
-    private static String normalize(String s) { if (s == null) return ""; return s.replace('\r', '\n').replace("P0LIZA", "POLIZA").replace("DECES0S", "DECESOS").replace("ASEGURAD0S", "ASEGURADOS").replace("T0MADOR", "TOMADOR"); }
+    private static String normalize(String s) { if (s == null) return ""; return s.replace('\r', '\n').replace("P0LIZA", "POLIZA").replace("DECES0S", "DECESOS").replace("ASEGURAD0S", "ASEGURADOS").replace("T0MADOR", "TOMADOR").replace("VENC1MIENTO", "VENCIMIENTO"); }
     private static String clean(String s) { return s == null ? "" : s.trim().replaceAll("\\s+", " "); }
     private static String normalizeDate(String s) { return s == null ? "" : s.replace('-', '/').replace('.', '/'); }
 }
