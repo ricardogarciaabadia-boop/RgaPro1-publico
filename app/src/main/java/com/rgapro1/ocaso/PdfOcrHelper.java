@@ -13,7 +13,7 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import java.io.IOException;
 
-/** OCR de PDF página a página con resolución reforzada para pólizas escaneadas. */
+/** OCR de PDF página a página. Prioriza legibilidad y no inventa campos cuando una página falla. */
 public final class PdfOcrHelper {
     public interface Callback { void onSuccess(String text); void onError(Exception error); }
     private PdfOcrHelper() {}
@@ -28,38 +28,50 @@ public final class PdfOcrHelper {
                     if (pages == 0) throw new IOException("El PDF no contiene páginas");
                     TextRecognizer recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
                     StringBuilder all = new StringBuilder();
-                    Exception firstError = null;
+                    int readablePages = 0;
                     try {
                         for (int i = 0; i < pages; i++) {
                             Bitmap bitmap = null;
                             android.graphics.pdf.PdfRenderer.Page page = null;
                             try {
                                 page = renderer.openPage(i);
-                                // Las pólizas de ejemplo contienen tablas y letra pequeña; 2x era insuficiente
-                                // en varios escaneos. Limitamos el tamaño para no disparar la RAM.
-                                int width = Math.min(3000, Math.max(1600, (int)(page.getWidth() * 2.75f)));
-                                int height = Math.min(4000, Math.max(2100, (int)(page.getHeight() * 2.75f)));
+                                // Alta resolución, pero con límite para evitar OOM en móviles.
+                                float scale = 3.0f;
+                                int width = Math.min(3400, Math.max(1800, Math.round(page.getWidth() * scale)));
+                                int height = Math.min(4600, Math.max(2400, Math.round(page.getHeight() * scale)));
                                 bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-                                page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+                                page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_PRINT);
+
                                 String text = Tasks.await(recognizer.process(InputImage.fromBitmap(bitmap, 0))).getText();
                                 all.append("\n--- Página ").append(i + 1).append(" ---\n");
-                                if (text != null && !text.trim().isEmpty()) all.append(text.trim());
-                                else { all.append("[No se pudo leer esta página]"); if (firstError == null) firstError = new IOException("OCR vacío en página " + (i + 1)); }
+                                if (text != null && !text.trim().isEmpty()) {
+                                    readablePages++;
+                                    all.append(clean(text));
+                                } else {
+                                    all.append("[PÁGINA SIN TEXTO DETECTABLE — REVISAR IMAGEN ORIGINAL]");
+                                }
                                 all.append('\n');
                             } catch (Exception pageError) {
-                                if (firstError == null) firstError = pageError;
-                                all.append("\n--- Página ").append(i + 1).append(" ---\n[No se pudo leer esta página]\n");
+                                all.append("\n--- Página ").append(i + 1).append(" ---\n[PÁGINA NO LEÍDA — REVISAR IMAGEN ORIGINAL]\n");
                             } finally {
                                 if (page != null) page.close();
                                 if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle();
                             }
                         }
                     } finally { recognizer.close(); }
-                    final String result = all.toString().trim();
-                    if (result.isEmpty()) callback.onError(firstError != null ? firstError : new IOException("No se pudo leer ninguna página del PDF"));
-                    else callback.onSuccess(result);
+
+                    if (readablePages == 0) {
+                        callback.onError(new IOException("No se pudo leer ninguna página del PDF"));
+                    } else {
+                        callback.onSuccess(all.toString().trim());
+                    }
                 }
             } catch (Exception e) { callback.onError(e); }
         }, "RgaPro-PdfOcr").start();
+    }
+
+    private static String clean(String text) {
+        if (text == null) return "";
+        return text.replace('\r', '\n').replaceAll("[\\t ]+", " ").replaceAll("\\n{3,}", "\\n\\n").trim();
     }
 }
