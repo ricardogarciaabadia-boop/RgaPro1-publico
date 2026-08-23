@@ -31,6 +31,15 @@ jobs:
       - name: Apply final policy cleanup
         run: python Scripts/apply_policy_cleanup_final.py
 
+      - name: Apply essential OCR fields fix
+        run: python Scripts/apply_ocr_essential_fields.py
+
+      - name: Fix generated Java OCR escapes
+        run: python Scripts/fix_essential_ocr_java_escapes.py
+
+      - name: Fix essential OCR compile cleanup
+        run: python Scripts/fix_essential_ocr_compile.py
+
       - name: Persist generated OCR fixes
         if: github.event_name == 'push'
         run: |
@@ -40,7 +49,7 @@ jobs:
             echo "No generated source changes to commit."
           else
             git add app/src/main/java/com/rgapro1/ocaso/MainActivity.java
-            git commit -m "fix: separate DNI and policy OCR"
+            git commit -m "fix: prioritize essential OCR fields"
             git push
           fi
 
