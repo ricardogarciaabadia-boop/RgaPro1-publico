@@ -1,6 +1,7 @@
 package com.rgapro1.ocaso;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.json.JSONArray;
@@ -27,6 +28,15 @@ public class PolicyOcrParserTest {
         assertEquals(3, insureds.length());
         assertEquals("27906367F", insureds.getJSONObject(1).getString("identityNumber"));
         assertEquals("ANGELES JIMENEZ CANTERO", insureds.getJSONObject(1).getString("name"));
+        assertEquals("10/12/1954", insureds.getJSONObject(1).getString("birthDate"));
+        assertEquals("M", insureds.getJSONObject(1).getString("sex"));
+    }
+
+    @Test
+    public void doesNotInventPolicyNumberFromProductTitle() {
+        JSONObject result = PolicyOcrParser.parse("PÓLIZA DE SEGURO DE OCASO DECESOS INTEGRAL\nTOMADOR DEL SEGURO");
+        assertEquals("Decesos Integral", result.getString("type"));
+        assertFalse(result.has("number"));
     }
 
     @Test
