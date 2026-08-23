@@ -44,7 +44,9 @@ public class Client360Activity extends FragmentActivity {
         body.addView(t("👤 "+client.optString("holder",client.optString("name","Cliente")),23,true));
         String id=client.optString("identityNumber",client.optString("holderDni","—"));
         body.addView(t("Identificación: "+id+"\nTeléfono: "+client.optString("phone","—")+"\nEmail: "+client.optString("email","—")+"\nDirección: "+client.optString("address","—"),16,false));
-        addGroup(body,"📦 PRODUCTO / PÓLIZA",client);addGroup(body,"📄 DOCUMENTACIÓN",client);addGroup(body,"🔔 VENCIMIENTO / BAJA",client);
+        addGroup(body,"📦 PRODUCTO / PÓLIZA",client);
+        addInsuredsGroup(body, client);
+        addGroup(body,"📄 DOCUMENTACIÓN",client);addGroup(body,"🔔 VENCIMIENTO / BAJA",client);
         sv.addView(body);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);
     }
 
@@ -56,8 +58,36 @@ public class Client360Activity extends FragmentActivity {
         if(docs!=null){for(int i=0;i<docs.length();i++){String path=documentPath(docs.opt(i));if(path.isEmpty())continue;Button d=btn("📄 "+new File(path).getName());d.setOnClickListener(v->documentMenu(path));body.addView(d,new LinearLayout.LayoutParams(-1,dp(58)));}}
     }
 
+    private void addInsuredsGroup(LinearLayout body, JSONObject p){
+        JSONArray insureds=p.optJSONArray("insureds");
+        if(insureds==null || insureds.length()==0) return;
+        body.addView(t("👥 ASEGURADOS DE LA PÓLIZA",18,true));
+        body.addView(t("Cada asegurado conserva sus propios datos. No se mezclan con los del tomador.",14,false));
+        for(int i=0;i<insureds.length();i++){
+            JSONObject person=insureds.optJSONObject(i); if(person==null) continue;
+            String name=person.optString("name",person.optString("holder","Asegurado"));
+            String id=person.optString("identityNumber","—");
+            String birth=person.optString("birthDate","—");
+            String sex=person.optString("sex","—");
+            String death=person.optString("effectiveDeathDate","");
+            String text=(i+1)+". "+name+"\nDNI/NIE: "+id+"\nNacimiento: "+birth+"  ·  Sexo: "+sex;
+            if(!death.isEmpty()) text += "\nFecha efecto decesos: "+death;
+            Button row=btn(text); row.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL); row.setOnClickListener(v->showInsured(person));
+            body.addView(row,new LinearLayout.LayoutParams(-1,dp(104)));
+        }
+    }
+
+    private void showInsured(JSONObject p){
+        String message="Nombre: "+p.optString("name",p.optString("holder","—"))
+                +"\nDNI/NIE: "+p.optString("identityNumber","—")
+                +"\nFecha de nacimiento: "+p.optString("birthDate","—")
+                +"\nSexo: "+p.optString("sex","—")
+                +"\nFecha efecto decesos: "+p.optString("effectiveDeathDate","—");
+        new AlertDialog.Builder(this).setTitle("Datos del asegurado").setMessage(message).setPositiveButton("Cerrar",null).show();
+    }
+
     private String documentPath(Object item){if(item==null||item==JSONObject.NULL)return "";if(item instanceof JSONObject)return ((JSONObject)item).optString("path","");return String.valueOf(item);}
-    private void showProduct(JSONObject p){new AlertDialog.Builder(this).setTitle("Producto / póliza").setMessage("Tipo: "+p.optString("type","—")+"\nNúmero: "+p.optString("number","—")+"\nTitular: "+p.optString("holder","—")+"\nVencimiento: "+p.optString("expiry",p.optString("validityDate","—"))).setPositiveButton("Cerrar",null).show();}
+    private void showProduct(JSONObject p){new AlertDialog.Builder(this).setTitle("Producto / póliza").setMessage("Tipo: "+p.optString("type","—")+"\nNúmero: "+p.optString("number","—")+"\nTitular: "+p.optString("holder","—")+"\nVencimiento: "+p.optString("expiry",p.optString("validityDate","—"))+"\nAsegurados: "+p.optInt("insuredCount",0)).setPositiveButton("Cerrar",null).show();}
 
     private void editClient(){
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(8),0,dp(8),0);
@@ -138,7 +168,7 @@ public class Client360Activity extends FragmentActivity {
     private Uri uri(String path){File f=new File(path);if(!f.exists())return null;try{return FileProvider.getUriForFile(this,getPackageName()+".fileprovider",f);}catch(Exception e){return null;}}
     private void open(String path){Uri u=uri(path);if(u==null){toast("No se puede acceder al archivo para compartirlo");return;}Intent i=new Intent(Intent.ACTION_VIEW);i.setDataAndType(u,mime(path));i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);try{startActivity(i);}catch(Exception e){toast("No hay una aplicación compatible para abrir este documento");}}
     private void share(String path){Uri u=uri(path);if(u==null){toast("No se puede compartir este archivo desde su ubicación actual");return;}Intent i=new Intent(Intent.ACTION_SEND);i.setType(mime(path));i.putExtra(Intent.EXTRA_STREAM,u);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);try{startActivity(Intent.createChooser(i,"Compartir documento"));}catch(Exception e){toast("No hay aplicaciones disponibles para compartir este documento");}}
-    private void download(String path){File src=new File(path);if(!src.exists()){toast("No se encuentra el documento");return;}try{if(Build.VERSION.SDK_INT>=29){ContentValues v=new ContentValues();v.put(MediaStore.Downloads.DISPLAY_NAME,src.getName());v.put(MediaStore.Downloads.MIME_TYPE,mime(path));v.put(MediaStore.Downloads.IS_PENDING,1);Uri u=getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,v);if(u==null)throw new IOException("No se pudo crear la descarga");try(InputStream in=new FileInputStream(src);OutputStream out=getContentResolver().openOutputStream(u)){byte[] b=new byte[8192];int n;while((n=in.read(b))>0)out.write(b,0,n);}v.clear();v.put(MediaStore.Downloads.IS_PENDING,0);getContentResolver().update(u,v,null,null);}else{File d=Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);if(!d.exists())d.mkdirs();try(InputStream in=new FileInputStream(src);OutputStream out=new FileOutputStream(new File(d,src.getName()))){byte[] b=new byte[8192];int n;while((n=in.read(b))>0)out.write(b,0,n);}}toast("Documento descargado");}catch(Exception e){toast("No se pudo descargar: "+e.getMessage());}}
+    private void download(String path){File src=new File(path);if(!src.exists()){toast("No se encuentra el documento");return;}try{if(Build.VERSION.SDK_INT>=29){ContentValues v=new ContentValues();v.put(MediaStore.Downloads.DISPLAY_NAME,src.getName());v.put(MediaStore.Downloads.MIME_TYPE,mime(path));v.put(MediaStore.Downloads.IS_PENDING,1);Uri u=getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,v);if(u==null)throw new IOException("No se pudo crear la descarga");try(InputStream in=new FileInputStream(src);OutputStream out=getContentResolver().openOutputStream(u)){byte[] b=new byte[8192];int n;while((n=in.read(b))>0)out.write(b,0,n);}v.clear();v.put(MediaStore.Downloads.IS_PENDING,0);getContentResolver().update(u,v,null,null);}else{File d=Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);if(!d.exists())d.mkdirs();try(InputStream in=new FileInputStream(src);OutputStream out=new FileOutputStream(new File(d,src.getName()))){byte[] b=new byte[8192];int n;while((n=in.read(b))>0)out.write(b,n);}}toast("Documento descargado");}catch(Exception e){toast("No se pudo descargar: "+e.getMessage());}}
     private String mime(String p){String x=p.toLowerCase();if(x.endsWith(".pdf"))return "application/pdf";if(x.endsWith(".png"))return "image/png";if(x.endsWith(".webp"))return "image/webp";return "image/jpeg";}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
 }
