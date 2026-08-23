@@ -16,6 +16,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Force valid OCR patch escape
+        run: python3 Scripts/force_ocr_patch_java_escape.py
+
       - name: Normalize OCR patch script
         run: python3 Scripts/fix_ocr_patch_script_escape.py
 
