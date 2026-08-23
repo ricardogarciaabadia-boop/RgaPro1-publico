@@ -16,6 +16,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Normalize OCR patch script
+        run: python3 Scripts/fix_ocr_patch_script_escape.py
+
       - name: Apply reliable front DNI OCR patch
         run: python3 Scripts/patch_ocr_front_reliable.py
 
