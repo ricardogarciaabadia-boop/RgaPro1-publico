@@ -16,5 +16,5 @@ La compilación del APK se realiza mediante GitHub Actions.
 ## Versión actual
 Incluye búsqueda global, listado de clientes A-Z, ficha de cliente, pólizas desplegables, alarmas prioritarias 60/40/30/7/1, OCR de DNI/NIE con anverso y reverso, importación de PDF/documentos, edición y guardado.
 
-## Versión final en preparación
-Incluye mejoras de gestión de clientes, documentos, edición y asociación.
+## Build de prueba
+Compilación de prueba RgaPro v2.
