@@ -3,32 +3,116 @@ package com.rgapro1.ocaso;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-/** Focused OCR confirmation UI: identity fields for DNI, product/policy fields for policies. */
+/** Clean OCR confirmation UI. Shows only information useful for client and policy management. */
 public final class OcrReviewDialog {
     public interface Callback { void onSave(JSONObject data); }
-    private static final int NAVY=Color.rgb(12,35,67), TEXT=Color.rgb(28,39,54), MUTED=Color.rgb(103,115,132);
+    private static final int NAVY=Color.rgb(12,35,67), BLUE=Color.rgb(25,133,224), TEXT=Color.rgb(28,39,54), MUTED=Color.rgb(103,115,132), LINE=Color.rgb(225,230,237), WARNING=Color.rgb(160,90,0);
     private OcrReviewDialog() {}
-    public static void show(Context context,String raw,int documentCount,Callback callback){String text=raw==null?"":raw;DniOcrParser.Result dni=DniOcrParser.parse(text);JSONObject policy=PolicyOcrParser.parse(text);if(isPolicy(text,policy))showPolicy(context,text,documentCount,policy,dni,callback);else showDni(context,text,documentCount,dni,callback);}
-    private static boolean isPolicy(String text,JSONObject policy){String u=text.toUpperCase(Locale.ROOT);return policy.has("type")||policy.has("number")||u.contains("PÓLIZA")||u.contains("POLIZA")||u.contains("TOMADOR");}
-    private static void showDni(Context c,String raw,int count,DniOcrParser.Result d,Callback cb){LinearLayout box=box(c);addHeading(c,box,"IDENTIDAD","Solo los datos personales esenciales del DNI/NIE.");EditText name=field(c,"Nombre",d.name),surname=field(c,"Apellidos",d.surname),id=field(c,"DNI / NIE",d.dni),birth=field(c,"Fecha de nacimiento",d.birthDate);box.addView(name);box.addView(surname);box.addView(id);box.addView(birth);addHeading(c,box,"CONTACTO (OPCIONAL)","Puedes completarlo ahora o después desde la ficha del cliente.");EditText phone=field(c,"Teléfono",""),address=field(c,"Dirección",""),email=field(c,"Email","");box.addView(phone);box.addView(address);box.addView(email);box.addView(label(c,"Documento(s) procesado(s): "+count+" · Confianza OCR: "+d.confidence+"%"));ScrollView scroll=new ScrollView(c);scroll.addView(box);AlertDialog dialog=new AlertDialog.Builder(c).setTitle("Datos detectados por OCR").setView(scroll).setNegativeButton("Descartar",null).setPositiveButton("Guardar cliente",null).create();dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{try{JSONObject out=new JSONObject();String n=value(name),s=value(surname),i=value(id).toUpperCase(Locale.ROOT);out.put("holder",join(n,s));out.put("name",n);out.put("surname",s);out.put("identityType",identityType(i));out.put("identityNumber",i);out.put("holderDni",i);out.put("birthDate",value(birth));out.put("phone",value(phone));out.put("address",value(address));out.put("email",value(email));out.put("type",identityType(i).equals("NIE")?"Cliente / NIE":"Cliente / DNI");out.put("number","");out.put("ocrText",raw);cb.onSave(out);dialog.dismiss();}catch(Exception ignored){}}));dialog.show();}
-    private static void showPolicy(Context c,String raw,int count,JSONObject policy,DniOcrParser.Result dni,Callback cb){LinearLayout box=box(c);addHeading(c,box,"PRODUCTO / PÓLIZA","El producto y el número de póliza son los datos prioritarios.");String type=policy.optString("type","");if(type.isEmpty())type=inferProduct(raw);String number=policy.optString("number","");if(number.isEmpty())number=labelNumber(raw);EditText product=field(c,"Tipo de producto",type),policyNo=field(c,"Nº de póliza",number);box.addView(product);box.addView(policyNo);if(number.isEmpty())addWarning(c,box,"⚠ No se ha identificado con seguridad el número de póliza. Revísalo antes de guardar.");addHeading(c,box,"TITULAR / DATOS PERSONALES","No se mezclan los datos de otros asegurados con los del tomador.");String holder=policy.optString("holder","");if(holder.isEmpty())holder=join(dni.name,dni.surname);EditText holderF=field(c,"Nombre y apellidos del titular",holder),dniF=field(c,"DNI / NIE del titular",policy.optString("holderDni",dni.dni)),birth=field(c,"Fecha de nacimiento",dni.birthDate);box.addView(holderF);box.addView(dniF);box.addView(birth);JSONArray insureds=policy.optJSONArray("insureds");if(insureds!=null&&insureds.length()>0){addHeading(c,box,"ASEGURADOS","Cada asegurado conserva sus propios datos. No se copian al titular.");for(int i=0;i<insureds.length();i++){JSONObject p=insureds.optJSONObject(i);if(p==null)continue;TextView row=label(c,"Asegurado "+p.optInt("insuredIndex",i+1)+" · "+p.optString("name","Sin nombre")+"\n"+p.optString("identityNumber","")+" · nacimiento "+p.optString("birthDate","—")+" · sexo "+p.optString("sex","—"));row.setPadding(8,12,8,12);box.addView(row);}}addHeading(c,box,"CONTACTO (OPCIONAL)","Teléfono, dirección y email se completan cuando estén disponibles.");EditText phone=field(c,"Teléfono",""),address=field(c,"Dirección",""),email=field(c,"Email","");box.addView(phone);box.addView(address);box.addView(email);box.addView(label(c,"Documento(s) procesado(s): "+count+(insureds!=null?" · Asegurados detectados: "+insureds.length():"")));ScrollView scroll=new ScrollView(c);scroll.addView(box);AlertDialog dialog=new AlertDialog.Builder(c).setTitle("Datos de la póliza").setView(scroll).setNegativeButton("Descartar",null).setPositiveButton("Guardar póliza",null).create();dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(value(policyNo).isEmpty()){addNoNumberDialog(c,()->savePolicy(dialog,raw,product,policyNo,holderF,dniF,birth,phone,address,email,policy,cb));}else savePolicy(dialog,raw,product,policyNo,holderF,dniF,birth,phone,address,email,policy,cb);}));dialog.show();}
-    private static void savePolicy(AlertDialog dialog,String raw,EditText product,EditText policyNo,EditText holderF,EditText dniF,EditText birth,EditText phone,EditText address,EditText email,JSONObject policy,Callback cb){try{JSONObject out=new JSONObject();String id=value(dniF).toUpperCase(Locale.ROOT);out.put("holder",value(holderF));out.put("name",firstName(value(holderF)));out.put("surname",remainingSurname(value(holderF)));out.put("identityType",identityType(id));out.put("identityNumber","");out.put("holderDni",id);out.put("birthDate",value(birth));out.put("phone",value(phone));out.put("address",value(address));out.put("email",value(email));out.put("type",value(product).isEmpty()?"Otros":value(product));out.put("number",value(policyNo));out.put("ocrText",raw);if(policy.has("insureds"))out.put("insureds",policy.getJSONArray("insureds"));if(policy.has("insuredCount"))out.put("insuredCount",policy.getInt("insuredCount"));cb.onSave(out);dialog.dismiss();}catch(Exception ignored){}}
-    private static void addNoNumberDialog(Context c,Runnable save){new AlertDialog.Builder(c).setTitle("Número de póliza no confirmado").setMessage("No se ha podido identificar con seguridad el número de póliza. Puedes guardar el documento y completarlo después, pero se recomienda revisarlo ahora.").setNegativeButton("Seguir revisando",null).setPositiveButton("Guardar sin número",(d,w)->save.run()).show();}
-    private static void addWarning(Context c,LinearLayout b,String s){TextView t=label(c,s);t.setTextColor(Color.rgb(160,90,0));b.addView(t);}
+
+    public static void show(Context context,String raw,int documentCount,Callback callback){
+        String text=raw==null?"":raw;
+        DniOcrParser.Result dni=DniOcrParser.parse(text);
+        JSONObject policy=PolicyOcrParser.parse(text);
+        if(isPolicy(text,policy)) showPolicy(context,text,documentCount,policy,dni,callback); else showDni(context,text,documentCount,dni,callback);
+    }
+
+    private static boolean isPolicy(String text,JSONObject policy){
+        String u=text.toUpperCase(Locale.ROOT);
+        return policy.has("type")||policy.has("number")||u.contains("PÓLIZA")||u.contains("POLIZA")||u.contains("TOMADOR")||u.contains("ASEGURADO");
+    }
+
+    private static void showDni(Context c,String raw,int count,DniOcrParser.Result d,Callback cb){
+        LinearLayout box=box(c);
+        addTitle(c,box,"IDENTIDAD","Revisa los 4 datos esenciales antes de guardar.");
+        EditText name=field(c,"Nombre",d.name), surname=field(c,"Apellidos",d.surname), id=field(c,"DNI / NIE",d.dni), birth=field(c,"Fecha de nacimiento",d.birthDate);
+        box.addView(name); box.addView(surname); box.addView(id); box.addView(birth);
+        addTitle(c,box,"CONTACTO","Opcional · puedes completarlo después.");
+        EditText phone=field(c,"Teléfono",""),address=field(c,"Dirección",""),email=field(c,"Email","");
+        box.addView(phone); box.addView(address); box.addView(email);
+        returnDialog(c,"Datos del cliente","Guardar cliente",box,()->{
+            try{JSONObject out=new JSONObject();String n=value(name),s=value(surname),i=value(id).toUpperCase(Locale.ROOT);out.put("holder",join(n,s));out.put("name",n);out.put("surname",s);out.put("identityType",identityType(i));out.put("identityNumber",i);out.put("holderDni",i);out.put("birthDate",value(birth));out.put("phone",value(phone));out.put("address",value(address));out.put("email",value(email));out.put("type",identityType(i).equals("NIE")?"Cliente / NIE":"Cliente / DNI");out.put("number","");out.put("ocrText",raw);return out;}catch(Exception e){return null;}
+        },cb);
+    }
+
+    private static void showPolicy(Context c,String raw,int count,JSONObject policy,DniOcrParser.Result dni,Callback cb){
+        LinearLayout box=box(c);
+        String type=policy.optString("type","");
+        String number=policy.optString("number","");
+        String holder=policy.optString("holder","");
+        if(holder.isEmpty()) holder=join(dni.name,dni.surname);
+        String holderDni=policy.optString("holderDni",dni.dni);
+        String birth=dni.birthDate;
+
+        addTitle(c,box,"PÓLIZA","Solo los datos que necesitas para identificarla.");
+        EditText product=importantField(c,"TIPO DE PRODUCTO",type.isEmpty()?"No identificado":type);
+        EditText policyNo=importantField(c,"Nº DE PÓLIZA",number);
+        box.addView(product); box.addView(policyNo);
+        if(type.isEmpty()) addWarning(c,box,"Revisa el producto: no se ha identificado con seguridad.");
+        if(number.isEmpty()) addWarning(c,box,"Revisa el número: no se ha encontrado una etiqueta clara de Nº de póliza.");
+
+        addTitle(c,box,"TITULAR","Datos personales del tomador/titular. No se mezclan con otros asegurados.");
+        EditText holderF=field(c,"Nombre y apellidos",holder), dniF=field(c,"DNI / NIE",holderDni), birthF=field(c,"Fecha de nacimiento",birth);
+        box.addView(holderF); box.addView(dniF); box.addView(birthF);
+
+        JSONArray insureds=policy.optJSONArray("insureds");
+        if(insureds!=null&&insureds.length()>0){
+            addTitle(c,box,"ASEGURADOS ("+insureds.length()+")","Cada persona mantiene sus propios datos.");
+            for(int i=0;i<insureds.length();i++){
+                JSONObject p=insureds.optJSONObject(i); if(p==null) continue;
+                addInsuredCard(c,box,p,i+1);
+            }
+        }
+
+        addTitle(c,box,"CONTACTO","Opcional · se puede completar después desde el cliente.");
+        EditText phone=field(c,"Teléfono",""),address=field(c,"Dirección",""),email=field(c,"Email","");
+        box.addView(phone); box.addView(address); box.addView(email);
+
+        returnDialog(c,"Revisar póliza","Guardar póliza",box,()->{
+            try{JSONObject out=new JSONObject();String id=value(dniF).toUpperCase(Locale.ROOT);out.put("holder",value(holderF));out.put("name",firstName(value(holderF)));out.put("surname",remainingSurname(value(holderF)));out.put("identityType",identityType(id));out.put("identityNumber","");out.put("holderDni",id);out.put("birthDate",value(birthF));out.put("phone",value(phone));out.put("address",value(address));out.put("email",value(email));out.put("type",value(product).isEmpty()?"Otros":value(product));out.put("number",value(policyNo));out.put("ocrText",raw);if(policy.has("insureds"))out.put("insureds",policy.getJSONArray("insureds"));if(policy.has("insuredCount"))out.put("insuredCount",policy.getInt("insuredCount"));return out;}catch(Exception e){return null;}
+        },cb);
+    }
+
+    private static void addInsuredCard(Context c,LinearLayout box,JSONObject p,int fallbackIndex){
+        LinearLayout card=new LinearLayout(c); card.setOrientation(LinearLayout.VERTICAL); card.setPadding(dp(c,14),dp(c,8),dp(c,14),dp(c,8)); card.setBackground(round(Color.WHITE,14));
+        String index=String.valueOf(p.optInt("insuredIndex",fallbackIndex));
+        TextView title=label(c,"ASEGURADO "+index+"",16,NAVY,true); card.addView(title);
+        card.addView(label(c,p.optString("name","Sin nombre"),17,TEXT,true));
+        String id=p.optString("identityNumber",""); if(!id.isEmpty()) card.addView(label(c,"DNI / NIE: "+id,14,TEXT,false));
+        String bd=p.optString("birthDate",""); if(!bd.isEmpty()) card.addView(label(c,"Nacimiento: "+bd,14,TEXT,false));
+        String sex=p.optString("sex",""); if(!sex.isEmpty()) card.addView(label(c,"Sexo: "+sex,14,TEXT,false));
+        String eff=p.optString("effectiveDeathDate",""); if(!eff.isEmpty()) card.addView(label(c,"Efecto decesos: "+eff,14,MUTED,false));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,LinearLayout.LayoutParams.WRAP_CONTENT);lp.bottomMargin=dp(c,8);box.addView(card,lp);
+    }
+
+    private interface DataFactory{JSONObject build();}
+    private static void returnDialog(Context c,String title,String saveText,LinearLayout box,DataFactory factory,Callback cb){
+        ScrollView scroll=new ScrollView(c); scroll.setFillViewport(true); scroll.addView(box);
+        AlertDialog dialog=new AlertDialog.Builder(c).setTitle(title).setView(scroll).setNegativeButton("Descartar",null).setPositiveButton(saveText,null).create();
+        dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{JSONObject out=factory.build();if(out==null){Toast.makeText(c,"No se pudieron preparar los datos",Toast.LENGTH_SHORT).show();return;}if("Guardar póliza".equals(saveText)&&out.optString("number","").trim().isEmpty()){addNoNumberDialog(c,()->{cb.onSave(out);dialog.dismiss();});return;}cb.onSave(out);dialog.dismiss();}));
+        dialog.show();
+    }
+
+    private static void addNoNumberDialog(Context c,Runnable save){new AlertDialog.Builder(c).setTitle("Número de póliza no confirmado").setMessage("No se ha identificado un número junto a una etiqueta clara de póliza. Puedes guardarla sin número y completarlo después.").setNegativeButton("Seguir revisando",null).setPositiveButton("Guardar sin número",(d,w)->save.run()).show();}
+    private static void addWarning(Context c,LinearLayout b,String s){TextView t=label(c,s,13,WARNING,true);t.setPadding(dp(c,4),dp(c,8),dp(c,4),dp(c,8));b.addView(t);}
+    private static void addTitle(Context c,LinearLayout b,String title,String sub){b.addView(label(c,title,16,NAVY,true));b.addView(label(c,sub,12,MUTED,false));}
+    private static LinearLayout box(Context c){LinearLayout b=new LinearLayout(c);b.setOrientation(LinearLayout.VERTICAL);b.setPadding(dp(c,18),dp(c,6),dp(c,18),dp(c,18));return b;}
+    private static TextView label(Context c,String s,float size,int color,boolean bold){TextView t=new TextView(c);t.setText(s);t.setTextColor(color);t.setTextSize(size);t.setTypeface(bold?Typeface.DEFAULT_BOLD:Typeface.DEFAULT);t.setPadding(dp(c,4),dp(c,5),dp(c,4),dp(c,5));return t;}
+    private static EditText field(Context c,String hint,String value){EditText e=new EditText(c);e.setHint(hint);e.setSingleLine(true);e.setText(value==null?"":value);e.setTextSize(16);e.setTextColor(TEXT);e.setPadding(dp(c,14),0,dp(c,14),0);e.setMinHeight(dp(c,52));e.setBackground(round(Color.WHITE,12));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(c,56));p.bottomMargin=dp(c,7);e.setLayoutParams(p);return e;}
+    private static EditText importantField(Context c,String hint,String value){EditText e=field(c,hint,value);e.setTextSize(18);e.setTypeface(Typeface.DEFAULT,Typeface.BOLD);e.setTextColor(NAVY);return e;}
+    private static GradientDrawable round(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(radius);g.setStroke(1,LINE);return g;}
+    private static int dp(Context c,int n){return (int)(n*c.getResources().getDisplayMetrics().density+.5f);}
+    private static String value(EditText e){return e.getText().toString().trim();}
+    private static String join(String a,String b){return(a+" "+b).trim();}
+    private static String firstName(String s){String[] p=s.trim().split("\\s+");return p.length==0?"":p[0];}
+    private static String remainingSurname(String s){String[] p=s.trim().split("\\s+");if(p.length<=1)return"";StringBuilder b=new StringBuilder();for(int i=1;i<p.length;i++){if(i>1)b.append(' ');b.append(p[i]);}return b.toString();}
     private static String identityType(String id){return id.toUpperCase(Locale.ROOT).matches("[XYZ][0-9]{7}[A-Z]")?"NIE":(id.isEmpty()?"":"DNI");}
-    private static LinearLayout box(Context c){LinearLayout b=new LinearLayout(c);b.setOrientation(LinearLayout.VERTICAL);b.setPadding(18,4,18,10);return b;}
-    private static void addHeading(Context c,LinearLayout b,String title,String sub){TextView t=label(c,title);t.setTextSize(15);t.setTextColor(NAVY);t.setGravity(Gravity.LEFT);b.addView(t);TextView s=label(c,sub);s.setTextColor(MUTED);s.setTextSize(12);b.addView(s);}
-    private static TextView label(Context c,String s){TextView t=new TextView(c);t.setText(s);t.setTextColor(TEXT);t.setPadding(4,10,4,4);return t;}
-    private static EditText field(Context c,String hint,String value){EditText e=new EditText(c);e.setHint(hint);e.setSingleLine(true);e.setText(value==null?"":value);e.setTextSize(16);e.setPadding(14,0,14,0);e.setMinHeight(54);return e;}
-    private static String value(EditText e){return e.getText().toString().trim();}private static String join(String a,String b){return(a+" "+b).trim();}private static String firstName(String s){String[] p=s.trim().split("\\s+");return p.length==0?"":p[0];}private static String remainingSurname(String s){String[] p=s.trim().split("\\s+");if(p.length<=1)return"";StringBuilder b=new StringBuilder();for(int i=1;i<p.length;i++){if(i>1)b.append(' ');b.append(p[i]);}return b.toString();}
-    private static String inferProduct(String raw){String u=raw.toUpperCase(Locale.ROOT);String[] m={"DECESOS INTEGRAL","ASISTENCIA FAMILIAR XXI","ACCIDENTES DE LA MUJER","AHORRO GARANTIZADO FLEXIBLE","OCASO COMUNIDADES","OCASO HOGAR SENIOR","OCASO HOGAR PROTECCION","OCASO HOGAR"};for(String x:m)if(u.contains(x)){if(x.equals("DECESOS INTEGRAL"))return"Decesos Integral";if(x.equals("ASISTENCIA FAMILIAR XXI"))return"Asistencia Familiar XXI";if(x.equals("ACCIDENTES DE LA MUJER"))return"Ocaso Accidentes de la Mujer";if(x.equals("AHORRO GARANTIZADO FLEXIBLE"))return"Ocaso Ahorro Garantizado Flexible";if(x.equals("OCASO COMUNIDADES"))return"Ocaso Comunidades";if(x.equals("OCASO HOGAR SENIOR"))return"Ocaso Hogar Senior";if(x.equals("OCASO HOGAR PROTECCION"))return"Ocaso Hogar Protección";return"Ocaso Hogar";}return u.contains("TOMADOR")?"Póliza":"Otros";}
-    private static String labelNumber(String raw){Pattern p=Pattern.compile("(?i)(?:N[º°.]?\\s*(?:DE\\s*)?P[ÓO]LIZA|P[ÓO]LIZA\\s*(?:N[º°.]?|NUM(?:ERO)?))\\s*[:#-]?\\s*([A-Z0-9./_-]{5,})");Matcher m=p.matcher(raw==null?"":raw);while(m.find()){String v=m.group(1).trim();if(!v.matches("(?i)(DE|SEGURO|OCASO|POLIZA|PÓLIZA)"))return v;}return"";}
 }
