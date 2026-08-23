@@ -3,10 +3,12 @@ package com.rgapro1.ocaso;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 
+import com.rgapro1.ocaso.data.local.LegacyDataMigrator;
+
 /**
  * Production launcher that keeps the legacy MainActivity UI intact while
- * transparently routing its local PIN through SecurePinStore and repairing
- * OCR/client associations in the background.
+ * transparently routing its local PIN through SecurePinStore, migrating
+ * client records to Room and repairing OCR/client associations in background.
  */
 public class SecureMainActivity extends MainActivity {
     private SharedPreferences secureLocalPreferences;
@@ -29,6 +31,8 @@ public class SecureMainActivity extends MainActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        new Thread(() -> LegacyDataMigrator.migrate(getApplicationContext()),
+                "rgapro-room-migration").start();
         ClientAutoLinker.start(this);
     }
 }
