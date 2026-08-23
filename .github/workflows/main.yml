@@ -12,46 +12,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.x'
-
-      - name: Apply OCR document separation
-        run: python Scripts/apply_ocr_document_separation.py
-
-      - name: Apply OCR taxonomy guard
-        run: python Scripts/apply_ocr_taxonomy_guard.py
-
-      - name: Apply final policy cleanup
-        run: python Scripts/apply_policy_cleanup_final.py
-
-      - name: Apply essential OCR fields fix
-        run: python Scripts/apply_ocr_essential_fields.py
-
-      - name: Fix generated Java OCR escapes
-        run: python Scripts/fix_essential_ocr_java_escapes.py
-
-      - name: Fix essential OCR compile cleanup
-        run: python Scripts/fix_essential_ocr_compile.py
-
-      - name: Persist generated OCR fixes
-        if: github.event_name == 'push'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
-            echo "No generated source changes to commit."
-          else
-            git add app/src/main/java/com/rgapro1/ocaso/MainActivity.java
-            git commit -m "fix: prioritize essential OCR fields"
-            git push
-          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
