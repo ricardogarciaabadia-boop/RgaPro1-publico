@@ -37,6 +37,9 @@ jobs:
       - name: Fix generated Java OCR escapes
         run: python Scripts/fix_essential_ocr_java_escapes.py
 
+      - name: Fix essential OCR compile cleanup
+        run: python Scripts/fix_essential_ocr_compile.py
+
       - name: Persist generated OCR fixes
         if: github.event_name == 'push'
         run: |
