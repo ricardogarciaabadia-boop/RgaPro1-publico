@@ -101,7 +101,22 @@ public final class ClientAutoLinker {
         String text = p.optString("ocrText", "");
         if (text.isEmpty()) return;
         String upper = text.toUpperCase(Locale.ROOT);
-        String id = first(DNI, upper);
+
+        try {
+            JSONObject structured = PolicyOcrParser.parse(text);
+            if (structured.has("type")) put(p, "type", structured.optString("type", ""));
+            if (structured.has("number")) put(p, "number", structured.optString("number", ""));
+            if (structured.has("holder")) put(p, "holder", structured.optString("holder", ""));
+            if (structured.has("holderDni")) put(p, "holderDni", structured.optString("holderDni", ""));
+            if (structured.has("identityType")) put(p, "identityType", structured.optString("identityType", ""));
+            if (structured.has("insureds")) p.put("insureds", structured.getJSONArray("insureds"));
+            if (structured.has("insuredCount")) p.put("insuredCount", structured.getInt("insuredCount"));
+        } catch (Exception ignored) {
+        }
+
+        String product = p.optString("type", "");
+        boolean decesos = "Decesos Integral".equalsIgnoreCase(product);
+        String id = decesos ? p.optString("holderDni", "") : first(DNI, upper);
         String cif = first(CIF, upper);
         if (empty(p, "identityNumber") && !id.isEmpty()) { put(p, "identityNumber", id); put(p, "holderDni", id); put(p, "identityType", id.matches("[XYZ].*") ? "NIE" : "DNI"); }
         if (empty(p, "cif") && !cif.isEmpty()) put(p, "cif", cif);
@@ -132,6 +147,14 @@ public final class ClientAutoLinker {
 
     private static boolean sameClient(JSONObject a, JSONObject b) {
         String ai=norm(id(a)), bi=norm(id(b));
+        String apn=norm(a.optString("number","")), bpn=norm(b.optString("number",""));
+        boolean aDec= "Decesos Integral".equalsIgnoreCase(a.optString("type",""));
+        boolean bDec= "Decesos Integral".equalsIgnoreCase(b.optString("type",""));
+        if ((aDec || bDec) && !apn.isEmpty() && !bpn.isEmpty() && !apn.equals(bpn)) {
+            // Different Decesos policies remain separate products/policies.
+            // They can still be linked later through the common client view.
+            return false;
+        }
         if(!ai.isEmpty()&&!bi.isEmpty()) return ai.equals(bi);
         String ae=norm(a.optString("email","")),be=norm(b.optString("email","")); if(!ae.isEmpty()&&!be.isEmpty()&&ae.equals(be))return true;
         String ap=digits(a.optString("phone","")),bp=digits(b.optString("phone","")); if(!ap.isEmpty()&&!bp.isEmpty()&&ap.equals(bp))return true;
@@ -142,7 +165,7 @@ public final class ClientAutoLinker {
     }
 
     private static void mergeInto(JSONObject base,JSONObject other)throws Exception{
-        String[] fields={"holder","surname","name","identityType","identityNumber","holderDni","cif","birthDate","nationality","sex","address","birthPlace","parents","supportNumber","issueDate","validityDate","expiry","phone","email"};
+        String[] fields={"holder","surname","name","identityType","identityNumber","holderDni","cif","birthDate","nationality","sex","address","birthPlace","parents","supportNumber","issueDate","validityDate","expiry","phone","email","type","number","insureds","insuredCount"};
         for(String k:fields)copyIfEmpty(base,other,k);
         JSONArray docs=base.optJSONArray("documentPhotos");if(docs==null)docs=new JSONArray();Set<String>seen=new HashSet<>();for(int i=0;i<docs.length();i++){JSONObject d=docs.optJSONObject(i);if(d!=null)seen.add(d.optString("path",""));}
         JSONArray od=other.optJSONArray("documentPhotos");if(od!=null)for(int i=0;i<od.length();i++){JSONObject d=od.optJSONObject(i);if(d!=null&&!seen.contains(d.optString("path",""))){docs.put(d);seen.add(d.optString("path",""));}}base.put("documentPhotos",docs);
