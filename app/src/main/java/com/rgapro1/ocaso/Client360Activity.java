@@ -45,10 +45,32 @@ public class Client360Activity extends FragmentActivity {
     }
     private void addInsuredsGroup(LinearLayout body,JSONObject p){
         JSONArray insureds=p.optJSONArray("insureds");if(insureds==null||insureds.length()==0)return;
-        body.addView(t("👥 ASEGURADOS DE LA PÓLIZA",18,true));body.addView(t("Cada asegurado conserva sus propios datos. No se mezclan con los del tomador.",14,false));
-        for(int i=0;i<insureds.length();i++){JSONObject person=insureds.optJSONObject(i);if(person==null)continue;String name=person.optString("name",person.optString("holder","Asegurado"));String id=person.optString("identityNumber","—");String birth=person.optString("birthDate","—");String sex=person.optString("sex","—");String death=person.optString("effectiveDeathDate","");String text=(i+1)+". "+name+"\nDNI/NIE: "+id+"\nNacimiento: "+birth+"  ·  Sexo: "+sex;if(!death.isEmpty())text+="\nFecha efecto decesos: "+death;Button row=btn(text);row.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);row.setOnClickListener(v->showInsured(person));body.addView(row,new LinearLayout.LayoutParams(-1,dp(104)));}
+        body.addView(t("👥 ASEGURADOS DE LA PÓLIZA",18,true));body.addView(t(insureds.length()+" personas · Pulsa una persona para ver sus datos.",14,false));
+        for(int i=0;i<insureds.length();i++){
+            JSONObject person=insureds.optJSONObject(i);if(person==null)continue;
+            String name=person.optString("name",person.optString("holder","Asegurado"));
+            String id=person.optString("identityNumber","");
+            Button row=btn("👤  "+(i+1)+". "+name+(id.isEmpty()?"":"\n      DNI/NIE · "+maskIdentity(id))+"\n      Ver datos  ›");
+            row.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);row.setPadding(dp(12),dp(8),dp(12),dp(8));
+            body.addView(row,new LinearLayout.LayoutParams(-1,dp(82)));
+            row.setOnClickListener(v->showInsured(person));
+        }
     }
-    private void showInsured(JSONObject p){String message="Nombre: "+p.optString("name",p.optString("holder","—"))+"\nDNI/NIE: "+p.optString("identityNumber","—")+"\nFecha de nacimiento: "+p.optString("birthDate","—")+"\nSexo: "+p.optString("sex","—")+"\nFecha efecto decesos: "+p.optString("effectiveDeathDate","—");new AlertDialog.Builder(this).setTitle("Datos del asegurado").setMessage(message).setPositiveButton("Cerrar",null).show();}
+    private String maskIdentity(String id){String x=id==null?"":id.trim();if(x.length()<=4)return x;return "••••"+x.substring(x.length()-4);}
+    private void showInsured(JSONObject p){
+        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(8),0,dp(8),0);
+        box.addView(t("DATOS PERSONALES",15,true));
+        box.addView(t("Nombre y apellidos\n"+p.optString("name",p.optString("holder","—")),17,false));
+        box.addView(t("DNI / NIE\n"+p.optString("identityNumber","—"),17,false));
+        box.addView(t("Fecha de nacimiento\n"+p.optString("birthDate","—"),17,false));
+        box.addView(t("Sexo\n"+p.optString("sex","—"),17,false));
+        box.addView(t("DATOS DE LA PÓLIZA",15,true));
+        box.addView(t("Fecha de efecto decesos\n"+p.optString("effectiveDeathDate","—"),17,false));
+        String capital=p.optString("deathCapital",p.optString("capitalDecesos",""));
+        if(!capital.isEmpty())box.addView(t("Capital de fallecimiento\n"+capital,17,false));
+        ScrollView scroll=new ScrollView(this);scroll.addView(box);
+        new AlertDialog.Builder(this).setTitle(p.optString("name","Asegurado")).setView(scroll).setPositiveButton("Cerrar",null).show();
+    }
     private String documentPath(Object item){if(item==null||item==JSONObject.NULL)return "";if(item instanceof JSONObject)return ((JSONObject)item).optString("path","");return String.valueOf(item);}
     private void showProduct(JSONObject p){new AlertDialog.Builder(this).setTitle("Producto / póliza").setMessage("Tipo: "+p.optString("type","—")+"\nNúmero: "+p.optString("number","—")+"\nTitular: "+p.optString("holder","—")+"\nVencimiento: "+p.optString("expiry",p.optString("validityDate","—"))+"\nAsegurados: "+p.optInt("insuredCount",0)).setPositiveButton("Cerrar",null).show();}
     private void editClient(){
