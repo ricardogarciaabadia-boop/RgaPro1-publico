@@ -3,19 +3,13 @@ package com.rgapro1.ocaso;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 
-/**
- * Production launcher that keeps the legacy MainActivity UI intact while
- * transparently routing its local PIN through SecurePinStore and repairing
- * OCR/client associations in the background.
- */
-public class SecureMainActivity extends MainActivity {
+/** Lanzador seguro de la nueva interfaz RgaPro. */
+public class SecureMainActivity extends MainActivityV2 {
     private SharedPreferences secureLocalPreferences;
 
     @Override
     public SharedPreferences getSharedPreferences(String name, int mode) {
-        if (!"rgapro_local".equals(name)) {
-            return super.getSharedPreferences(name, mode);
-        }
+        if (!"rgapro_local".equals(name)) return super.getSharedPreferences(name, mode);
         if (secureLocalPreferences == null) {
             SharedPreferences delegate = super.getSharedPreferences(name, mode);
             secureLocalPreferences = new SecurePinPreferences(
@@ -26,9 +20,8 @@ public class SecureMainActivity extends MainActivity {
         return secureLocalPreferences;
     }
 
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
+    @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        ClientAutoLinker.start(this);
+        try { ClientAutoLinker.start(this); } catch (Exception ignored) {}
     }
 }
