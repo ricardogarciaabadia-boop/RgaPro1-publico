@@ -102,9 +102,10 @@ public final class ClientAutoLinker {
         if (text.isEmpty()) return;
         String upper = text.toUpperCase(Locale.ROOT);
 
+        String product = p.optString("type", "");
         try {
             JSONObject structured = PolicyOcrParser.parse(text);
-            if (structured.has("type")) put(p, "type", structured.optString("type", ""));
+            if (structured.has("type")) { product = structured.optString("type", product); put(p, "type", product); }
             if (structured.has("number")) put(p, "number", structured.optString("number", ""));
             if (structured.has("holder")) put(p, "holder", structured.optString("holder", ""));
             if (structured.has("holderDni")) put(p, "holderDni", structured.optString("holderDni", ""));
@@ -114,11 +115,31 @@ public final class ClientAutoLinker {
         } catch (Exception ignored) {
         }
 
-        String product = p.optString("type", "");
-        boolean decesos = "Decesos Integral".equalsIgnoreCase(product);
-        String id = decesos ? p.optString("holderDni", "") : first(DNI, upper);
+        // DNI/NIE is a special document: only the four core identity fields are
+        // taken from its structured parser. We deliberately do not overwrite a
+        // policy's holder with a random DNI found elsewhere in a policy PDF.
+        boolean plainIdentity = product.isEmpty()
+                || "Cliente / DNI".equalsIgnoreCase(product)
+                || "Cliente / NIE".equalsIgnoreCase(product)
+                || "DNI".equalsIgnoreCase(product)
+                || "NIE".equalsIgnoreCase(product);
+        if (plainIdentity) {
+            DniOcrParser.Result dni = DniOcrParser.parse(text);
+            if (!dni.dni.isEmpty()) {
+                put(p, "identityNumber", dni.dni);
+                put(p, "holderDni", dni.dni);
+                put(p, "identityType", dni.dni.matches("[XYZ].*") ? "NIE" : "DNI");
+            }
+            if (!dni.surname.isEmpty()) put(p, "surname", dni.surname);
+            if (!dni.name.isEmpty()) put(p, "name", dni.name);
+            if (!dni.holder.isEmpty()) put(p, "holder", dni.holder);
+            if (!dni.birthDate.isEmpty()) put(p, "birthDate", dni.birthDate);
+            if (p.optString("type", "").isEmpty()) put(p, "type", dni.dni.matches("[XYZ].*") ? "Cliente / NIE" : "Cliente / DNI");
+        }
+
+        String id = p.optString("identityNumber", p.optString("holderDni", ""));
         String cif = first(CIF, upper);
-        if (empty(p, "identityNumber") && !id.isEmpty()) { put(p, "identityNumber", id); put(p, "holderDni", id); put(p, "identityType", id.matches("[XYZ].*") ? "NIE" : "DNI"); }
+        if (empty(p, "identityNumber") && !id.isEmpty()) put(p, "identityNumber", id);
         if (empty(p, "cif") && !cif.isEmpty()) put(p, "cif", cif);
         if (empty(p, "email")) put(p, "email", first(EMAIL, text));
         if (empty(p, "phone")) put(p, "phone", first(PHONE, text));
@@ -151,8 +172,6 @@ public final class ClientAutoLinker {
         boolean aDec= "Decesos Integral".equalsIgnoreCase(a.optString("type",""));
         boolean bDec= "Decesos Integral".equalsIgnoreCase(b.optString("type",""));
         if ((aDec || bDec) && !apn.isEmpty() && !bpn.isEmpty() && !apn.equals(bpn)) {
-            // Different Decesos policies remain separate products/policies.
-            // They can still be linked later through the common client view.
             return false;
         }
         if(!ai.isEmpty()&&!bi.isEmpty()) return ai.equals(bi);
