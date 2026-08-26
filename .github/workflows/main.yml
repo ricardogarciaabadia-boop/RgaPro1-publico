@@ -22,9 +22,6 @@ jobs:
       - name: Apply robust DNI OCR accuracy patch
         run: python3 Scripts/fix_dni_ocr_accuracy.py
 
-      - name: Apply robust policy OCR parser
-        run: python3 Scripts/patch_policy_ocr.py
-
       - name: Apply product-specific policy OCR fields
         run: python3 Scripts/patch_policy_product_ui.py
 
