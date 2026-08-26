@@ -16,6 +16,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Normalize Java source
+        run: python3 Scripts/normalize_build_sources.py
+
+      - name: Commit normalized source
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No source normalization changes needed"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/src/main/java/com/rgapro1/ocaso/MainActivityV2.java
+            git commit -m "fix: normalize Java source before build"
+            git push
+          fi
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
