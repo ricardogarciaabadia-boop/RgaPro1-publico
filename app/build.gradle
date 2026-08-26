@@ -37,20 +37,31 @@ configurations.configureEach {
     exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
 }
 
-// El archivo principal es histórico y contiene el flujo OCR anterior.
-// Lo actualizamos automáticamente en cada build para que todas las APK
-// generadas usen el nuevo pipeline sin duplicar MainActivityV2 completo.
+// El flujo histórico de MainActivityV2 se normaliza en CI mediante Scripts/.
+// Este paso sustituye el método OCR final por el motor multipasada nuevo,
+// independientemente de qué parche previo haya dejado el método en el árbol.
 def patchDniOcr = tasks.register('patchDniOcr') {
     doLast {
         File target = file('src/main/java/com/rgapro1/ocaso/MainActivityV2.java')
         String source = target.getText('UTF-8')
-        String marker = 'DniOcrEngine.process(frontBitmap,backBitmap'
-        if (source.contains(marker)) return
+        if (source.contains('DniOcrEngine.process(frontBitmap,backBitmap')) return
 
-        String oldMethod = '''    private void processDniPairOcr(){
-        TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS); if(frontBitmap==null||backBitmap==null){r.close();return;}
-        r.process(InputImage.fromBitmap(frontBitmap,0)).addOnSuccessListener(f->{frontText=f==null?"":f.getText();r.process(InputImage.fromBitmap(backBitmap,0)).addOnSuccessListener(b->{backText=b==null?"":b.getText();currentBitmap=frontBitmap;previewBitmap=frontBitmap;currentImagePath=frontImagePath;r.close();showIdentityReview(parseEssentialRobust(frontText+"\\n"+backText));}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR reverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR anverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});
-    }'''
+        String signature = '    private void processDniPairOcr(){'
+        int start = source.indexOf(signature)
+        if (start < 0) throw new GradleException('No se encontró processDniPairOcr; se evita compilar con un OCR incierto.')
+        int brace = source.indexOf('{', start)
+        int depth = 0
+        int end = -1
+        for (int i = brace; i < source.length(); i++) {
+            char ch = source.charAt(i)
+            if (ch == '{') depth++
+            else if (ch == '}') {
+                depth--
+                if (depth == 0) { end = i + 1; break }
+            }
+        }
+        if (end < 0) throw new GradleException('processDniPairOcr tiene llaves desbalanceadas.')
+
         String newMethod = '''    private void processDniPairOcr(){
         if(frontBitmap==null||backBitmap==null)return;
         DniOcrEngine.process(frontBitmap,backBitmap,new DniOcrEngine.Callback(){
@@ -69,8 +80,7 @@ def patchDniOcr = tasks.register('patchDniOcr') {
             }
         });
     }'''
-        if (!source.contains(oldMethod)) throw new GradleException('No se encontró processDniPairOcr; se evita una compilación con OCR antiguo/incierto.')
-        target.write(source.replace(oldMethod, newMethod), 'UTF-8')
+        target.write(source.substring(0, start) + newMethod + source.substring(end), 'UTF-8')
     }
 }
 
