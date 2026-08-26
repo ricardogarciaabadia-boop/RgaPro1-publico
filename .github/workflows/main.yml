@@ -28,9 +28,25 @@ jobs:
           gradle-version: '8.10.2'
 
       - name: Build debug APK
-        run: gradle --no-daemon :app:assembleDebug
+        id: build
+        shell: bash
+        run: |
+          set +e
+          gradle --no-daemon :app:assembleDebug --stacktrace > build.log 2>&1
+          status=$?
+          cat build.log
+          exit $status
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: RgaPro1-build-diagnostics
+          path: build.log
+          if-no-files-found: ignore
 
       - name: Upload debug APK
+        if: success()
         uses: actions/upload-artifact@v5
         with:
           name: RgaPro1-debug-apk
