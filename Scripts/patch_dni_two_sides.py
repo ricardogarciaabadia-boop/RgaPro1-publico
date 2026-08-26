@@ -25,8 +25,10 @@ new = '''    @Override protected void onActivityResult(int request,int result,In
             Uri u=request==CAMERA?cameraUri:(data==null?null:data.getData());if(u==null)return;
             documentUri=u;documentKind=1;currentBitmap=loadBitmap(u);previewBitmap=currentBitmap;currentImagePath=u.toString();
             if(request==CAMERA){if(side==2){backBitmap=currentBitmap;backImagePath=currentImagePath;}else{frontBitmap=currentBitmap;frontImagePath=currentImagePath;}}
-            else {frontBitmap=currentBitmap;frontImagePath=currentImagePath;}
-            reviewDniPair();
+            else if(frontBitmap==null){frontBitmap=currentBitmap;frontImagePath=currentImagePath;}
+            else {backBitmap=currentBitmap;backImagePath=currentImagePath;}
+            if(frontBitmap!=null && backBitmap==null){Toast.makeText(this,"Anverso cargado. Ahora selecciona el REVERSO.",Toast.LENGTH_LONG).show();ocrPage();}
+            else {reviewDniPair();}
         }catch(Exception e){Toast.makeText(this,"No se pudo cargar el documento: "+e.getMessage(),Toast.LENGTH_LONG).show();}
     }'''
 if old in s:
