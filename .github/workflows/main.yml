@@ -25,6 +25,9 @@ jobs:
       - name: Apply product-specific policy OCR fields
         run: python3 Scripts/patch_policy_product_ui.py
 
+      - name: Apply multi-page policy camera OCR workflow
+        run: python3 Scripts/patch_policy_multipage_camera.py
+
       - name: Apply client document archive patch
         run: python3 Scripts/patch_client_document_archive.py
 
