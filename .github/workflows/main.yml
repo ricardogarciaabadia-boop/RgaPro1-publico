@@ -16,6 +16,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Apply two-sided DNI JPEG OCR workflow
+        run: python3 Scripts/patch_dni_two_sides.py
+
       - name: Normalize Java source
         run: python3 Scripts/normalize_build_sources.py
 
