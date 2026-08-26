@@ -41,7 +41,7 @@ public final class DniOcrParser {
         ArrayList<Candidate> ids = collectIds(text, lines);
         Collections.sort(ids, new Comparator<Candidate>() { public int compare(Candidate a, Candidate b) { return b.score - a.score; } });
         for (Candidate c : ids) if (validIdentity(c.value)) { r.dni = c.value; break; }
-        if (r.dni.isEmpty() && !ids.isEmpty()) r.dni = ids.get(0).value;
+        // Nunca mostramos un DNI no validado: un candidato OCR dudoso no puede llegar al cliente.
         r.birthDate = bestBirthDate(text, r.issueDate, r.validityDate);
 
         String mrz = extractMrz(lines);
@@ -56,12 +56,13 @@ public final class DniOcrParser {
         if (r.holder.isEmpty()) r.holder = fallbackPerson(lines);
 
         int c = 0;
-        if (!r.dni.isEmpty() && validIdentity(r.dni)) c += 35;
+        if (!r.dni.isEmpty() && validIdentity(r.dni)) c += 40;
         if (!r.name.isEmpty()) c += 20;
         if (!r.surname.isEmpty()) c += 20;
         if (validDate(r.birthDate)) c += 15;
         if (validDate(r.validityDate)) c += 5;
         if (!r.nationality.isEmpty()) c += 5;
+        if (!r.mrz.isEmpty()) c += 5;
         r.confidence = Math.min(100, c);
         return r;
     }
@@ -117,7 +118,9 @@ public final class DniOcrParser {
 
     private static void parseMrz(String mrz, Result r) {
         String compact = mrz.replace(" ", "");
-        Matcher mid = Pattern.compile("IDESP[^0-9]{0,4}([0-9]{8}[A-Z])").matcher(compact);
+        // La MRZ del DNI español suele contener IDESP + código de soporte + DNI.
+        // No asumimos que el código de soporte tenga longitud fija.
+        Matcher mid = Pattern.compile("IDESP[A-Z0-9<]*?([0-9]{8}[A-Z])").matcher(compact);
         while (mid.find()) if (validIdentity(mid.group(1))) { r.dni = mid.group(1); break; }
         String[] names = mrzNames(mrz);
         if (!names[0].isEmpty()) r.surname = names[0];
