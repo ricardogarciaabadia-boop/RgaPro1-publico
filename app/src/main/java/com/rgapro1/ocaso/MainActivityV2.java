@@ -88,6 +88,8 @@ public class MainActivityV2 extends FragmentActivity {
         addRead(l,"Teléfono",p.optString("phone",""));
         addRead(l,"Email",p.optString("email",""));
         addRead(l,"Precio / recibo",p.optString("receipt",""));
+        String localDoc=p.optString("localDocumentPath","");
+        if(!localDoc.isEmpty()){Button open=btn("📎 ABRIR DOCUMENTO ORIGINAL",true);open.setOnClickListener(v->openArchivedDocument(localDoc,"pdf"));l.addView(open,new LinearLayout.LayoutParams(-1,dp(58)));}
         if(decesos){
             addRead(l,"Capital de decesos",p.optString("capital",""));
             addRead(l,"Total decesos",p.optString("decesos",""));
@@ -100,6 +102,7 @@ public class MainActivityV2 extends FragmentActivity {
         if(ins!=null)for(int i=0;i<ins.length();i++){JSONObject a=ins.optJSONObject(i);if(a==null)continue;addRead(l,a.optString("name","Asegurado"),"DNI: "+a.optString("identityNumber","—")+" · Nacimiento: "+a.optString("birthDate","—"));}
         new AlertDialog.Builder(this).setTitle("Póliza Ocaso").setView(l).setPositiveButton("Cerrar",null).show();
     }
+
 
 
 
@@ -225,6 +228,7 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
+
     private void processCurrentDocument(){if(documentUri==null||documentKind==0){Toast.makeText(this,"Primero selecciona un documento.",Toast.LENGTH_LONG).show();return;}if(documentKind==2){PdfOcrHelper.process(this,documentUri,new PdfOcrHelper.Callback(){public void onSuccess(String text){runOnUiThread(()->showPolicyReview(OcasoPolicyParser.parse(text),text));}public void onError(Exception e){runOnUiThread(()->Toast.makeText(MainActivityV2.this,"PDF: "+e.getMessage(),Toast.LENGTH_LONG).show());}});}else processImage();}
     private void processImage(){
         if(currentBitmap==null){Toast.makeText(this,"Primero selecciona un JPEG válido.",Toast.LENGTH_LONG).show();return;}
@@ -242,9 +246,27 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
+
     private void showIdentityReview(JSONObject x){shell("Revisión DNI/NIE","Comprueba los datos antes de guardar");body.addView(tv("2 · DOCUMENTO LEÍDO",18,BLUE,true));if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);body.addView(iv,new LinearLayout.LayoutParams(-1,dp(300)));}body.addView(tv("3 · DATOS DETECTADOS",18,BLUE,true));fullNameE=input("Nombre y apellidos");dniE=input("DNI/NIE");birthE=input("Fecha de nacimiento");addressE=input("Dirección");phoneE=input("Teléfono (lo puedes añadir tú)");fullNameE.setText(x.optString("fullName",""));dniE.setText(x.optString("identityNumber",""));birthE.setText(x.optString("birthDate",""));addressE.setText(x.optString("address",""));confidenceTv=tv("Confianza de lectura: "+x.optInt("confidence",0)+"% · Comprueba visualmente el documento.",14,MUTED,false);body.addView(confidenceTv);for(EditText e:new EditText[]{fullNameE,dniE,birthE,addressE,phoneE})body.addView(e,new LinearLayout.LayoutParams(-1,dp(54)));Button accept=btn("✅ ACEPTAR DATOS Y GUARDAR",true),reject=btn("❌ RECHAZAR / VOLVER A DOCUMENTO",false);body.addView(accept,new LinearLayout.LayoutParams(-1,dp(62)));body.addView(reject,new LinearLayout.LayoutParams(-1,dp(58)));accept.setOnClickListener(v->saveIdentity());reject.setOnClickListener(v->ocrPage());}
 
-    private void saveIdentity(){try{String full=fullNameE.getText().toString().trim(),id=dniE.getText().toString().trim().toUpperCase(Locale.ROOT),birth=birthE.getText().toString().trim();if(!isValidIdentity(id)){Toast.makeText(this,"DNI/NIE no válido. Revísalo antes de guardar.",Toast.LENGTH_LONG).show();return;}if(!validDate(birth)){Toast.makeText(this,"Fecha de nacimiento no válida.",Toast.LENGTH_LONG).show();return;}JSONObject x=findClientById(id);if(x==null)x=new JSONObject();x.put("holder",full);x.put("name",full);x.put("surname","");x.put("identityNumber",id);x.put("birthDate",birth);x.put("address",addressE.getText().toString().trim());x.put("phone",phoneE.getText().toString().trim());x.put("image",currentImagePath);x.put("frontImage",frontImagePath);x.put("backImage",backImagePath);if(!x.has("policies"))x.put("policies",new JSONArray());upsertClient(x);Toast.makeText(this,"Cliente guardado.",Toast.LENGTH_LONG).show();detail(x);}catch(Exception e){Toast.makeText(this,"No se pudo guardar: "+e.getMessage(),Toast.LENGTH_LONG).show();}}
+    private void saveIdentity(){
+        try{
+            String full=fullNameE.getText().toString().trim(),id=dniE.getText().toString().trim().toUpperCase(Locale.ROOT),birth=birthE.getText().toString().trim();
+            if(!isValidIdentity(id)){Toast.makeText(this,"DNI/NIE no válido. Revísalo antes de guardar.",Toast.LENGTH_LONG).show();return;}
+            if(!validDate(birth)){Toast.makeText(this,"Fecha de nacimiento no válida.",Toast.LENGTH_LONG).show();return;}
+            JSONObject x=findClientById(id);if(x==null)x=new JSONObject();
+            x.put("holder",full);x.put("name",full);x.put("surname","");x.put("identityNumber",id);x.put("birthDate",birth);x.put("address",addressE.getText().toString().trim());x.put("phone",phoneE.getText().toString().trim());
+            if(!x.has("policies"))x.put("policies",new JSONArray());
+            if(frontImagePath!=null&&!frontImagePath.isEmpty()){
+                try{String p=copyDocumentToArchive(Uri.parse(frontImagePath),"dni_front","jpg");addArchivedDocument(x,p,frontImagePath,"DNI/NIE · anverso","image","");}catch(Exception ignored){}
+            }
+            if(backImagePath!=null&&!backImagePath.isEmpty()){
+                try{String p=copyDocumentToArchive(Uri.parse(backImagePath),"dni_back","jpg");addArchivedDocument(x,p,backImagePath,"DNI/NIE · reverso","image","");}catch(Exception ignored){}
+            }
+            upsertClient(x);Toast.makeText(this,"Cliente guardado con sus documentos.",Toast.LENGTH_LONG).show();detail(x);
+        }catch(Exception e){Toast.makeText(this,"No se pudo guardar: "+e.getMessage(),Toast.LENGTH_LONG).show();}
+    }
+
 
     private void showPolicyReview(JSONObject p,String raw){
         shell("Revisión póliza Ocaso","Comprueba los datos y el documento antes de guardar");
@@ -343,29 +365,50 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
+
+
+
     private void savePolicy(String raw,JSONArray insured){
         try{
             String id=policyDniE.getText().toString().trim().toUpperCase(Locale.ROOT),number=policyNumberE.getText().toString().trim();
-            if(number.isEmpty()){Toast.makeText(this,"El número de póliza es obligatorio.",Toast.LENGTH_LONG).show();return;}
-            if(!id.isEmpty()&&!isValidIdentity(id)){Toast.makeText(this,"DNI/NIE no válido. Revísalo antes de guardar.",Toast.LENGTH_LONG).show();return;}
             JSONObject parsed=OcasoPolicyParser.parse(raw);
+            if(id.isEmpty()) id=parsed.optString("identityNumber","").trim().toUpperCase(Locale.ROOT);
+            String holder=holderE.getText().toString().trim(); if(holder.isEmpty()) holder=parsed.optString("holder","").trim();
+            String address=policyAddressE.getText().toString().trim(); if(address.isEmpty()) address=parsed.optString("address","").trim();
+            String phone=policyPhoneE.getText().toString().trim(); if(phone.isEmpty()) phone=parsed.optString("phone","").trim();
+            String email=policyEmailE.getText().toString().trim(); if(email.isEmpty()) email=parsed.optString("email","").trim();
+            if(number.isEmpty()) number=parsed.optString("number","").trim();
+            if(number.isEmpty()){Toast.makeText(this,"El número de póliza es obligatorio.",Toast.LENGTH_LONG).show();return;}
+            if(holder.isEmpty()){Toast.makeText(this,"No se ha podido identificar al tomador. Revísalo antes de guardar.",Toast.LENGTH_LONG).show();return;}
+            if(!id.isEmpty()&&!isValidIdentity(id)){Toast.makeText(this,"DNI/NIE no válido. Revísalo antes de guardar.",Toast.LENGTH_LONG).show();return;}
             String product=parsed.optString("policyType",currentPolicyProduct(raw));
-            JSONObject c=findClientById(id);if(c==null)c=findClientByName(holderE.getText().toString().trim());if(c==null)c=new JSONObject();
-            c.put("holder",holderE.getText().toString().trim());c.put("name",holderE.getText().toString().trim());c.put("surname","");
-            if(!id.isEmpty())c.put("identityNumber",id);c.put("address",policyAddressE.getText().toString().trim());c.put("phone",policyPhoneE.getText().toString().trim());c.put("email",policyEmailE.getText().toString().trim());
+            JSONObject c=findClientForPolicy(id,holder,phone,email);
+            boolean newClient=c==null;
+            if(c==null)c=new JSONObject();
+            c.put("holder",holder);c.put("name",holder);c.put("surname","");
+            if(!id.isEmpty())c.put("identityNumber",id); if(!address.isEmpty())c.put("address",address); if(!phone.isEmpty())c.put("phone",phone); if(!email.isEmpty())c.put("email",email);
             JSONArray ps=c.optJSONArray("policies");if(ps==null)ps=new JSONArray();
             JSONObject pol=new JSONObject();
-            pol.put("type","OCASO");pol.put("policyType",product);pol.put("number",number);pol.put("holder",holderE.getText().toString().trim());pol.put("identityNumber",id);pol.put("address",policyAddressE.getText().toString().trim());pol.put("phone",policyPhoneE.getText().toString().trim());pol.put("email",policyEmailE.getText().toString().trim());pol.put("receipt",receiptE.getText().toString().trim());pol.put("capital",capitalE.getText().toString().trim());
-            if("Decesos".equalsIgnoreCase(product)){
-                pol.put("decesos",decesosE.getText().toString().trim());pol.put("decesosLevelada",decesosLeveladaE.getText().toString().trim());
-            }else{
-                pol.put("decesos","");pol.put("decesosLevelada","");
-            }
+            pol.put("type","OCASO");pol.put("policyType",product);pol.put("number",number);pol.put("holder",holder);pol.put("identityNumber",id);pol.put("address",address);pol.put("phone",phone);pol.put("email",email);pol.put("receipt",receiptE.getText().toString().trim());pol.put("capital",capitalE.getText().toString().trim());
+            if("Decesos".equalsIgnoreCase(product)){pol.put("decesos",decesosE.getText().toString().trim());pol.put("decesosLevelada",decesosLeveladaE.getText().toString().trim());}else{pol.put("decesos","");pol.put("decesosLevelada","");}
             pol.put("insured",insured==null?new JSONArray():insured);pol.put("documentUri",documentUri==null?"":documentUri.toString());pol.put("ocrText",raw);pol.put("ocrConfidence",parsed.optInt("confidence",0));pol.put("ocrWarnings",parsed.optJSONArray("warnings"));
-            boolean replaced=false;for(int i=0;i<ps.length();i++){JSONObject old=ps.optJSONObject(i);if(old!=null&&number.equals(old.optString("number",""))){ps.put(i,pol);replaced=true;break;}}
-            if(!replaced)ps.put(pol);c.put("policies",ps);upsertClient(c);Toast.makeText(this,"Póliza guardada y asociada al cliente.",Toast.LENGTH_LONG).show();detail(c);
+            String localPdf="";
+            if(documentUri!=null){
+                try{localPdf=copyDocumentToArchive(documentUri,"policy_"+(number.isEmpty()?"document":number),"pdf");}catch(Exception e){Toast.makeText(this,"Aviso: no se pudo archivar el PDF localmente.",Toast.LENGTH_LONG).show();}
+            }
+            if(!localPdf.isEmpty())pol.put("localDocumentPath",localPdf);
+            boolean replaced=false;for(int i=0;i<ps.length();i++){JSONObject old=ps.optJSONObject(i);if(old!=null&&number.equals(old.optString("number",""))){
+                if(localPdf.isEmpty()&&!old.optString("localDocumentPath","").isEmpty())pol.put("localDocumentPath",old.optString("localDocumentPath",""));
+                ps.put(i,pol);replaced=true;break;
+            }}
+            if(!replaced)ps.put(pol);c.put("policies",ps);
+            if(!localPdf.isEmpty())addArchivedDocument(c,localPdf,documentUri==null?"":documentUri.toString(),"Póliza OCASO · "+number,"pdf",number);
+            upsertClient(c);
+            Toast.makeText(this,newClient?"Nuevo cliente creado y póliza archivada.":"Póliza asociada al cliente y archivada.",Toast.LENGTH_LONG).show();
+            detail(c);
         }catch(Exception e){Toast.makeText(this,"No se pudo guardar la póliza: "+e.getMessage(),Toast.LENGTH_LONG).show();}
     }
+
 
     private String currentPolicyProduct(String raw){
         String u=raw==null?"":raw.toUpperCase(Locale.ROOT);
@@ -406,6 +449,9 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
+
+
+
     private JSONObject parseEssential(String raw){JSONObject x=new JSONObject();try{String u=normalize(raw);String id=findId(u);String birth=findBirth(u);String name=mrzName(raw);if(name.isEmpty())name=labelValue(u,"NOMBRE","APELLIDOS");String address=labelValue(u,"DOMICILIO","DIRECCIÓN","DIRECCION");x.put("fullName",clean(name));x.put("identityNumber",id);x.put("birthDate",birth);x.put("address",address);int c=0;if(!id.isEmpty())c+=40;if(!name.isEmpty())c+=30;if(!birth.isEmpty())c+=20;if(!address.isEmpty())c+=10;x.put("confidence",c);}catch(Exception ignored){}return x;}
     private String normalize(String s){return (s==null?"":s).toUpperCase(Locale.ROOT).replace('Á','A').replace('É','E').replace('Í','I').replace('Ó','O').replace('Ú','U').replace((char)13,'\n').replaceAll("[ \\t]+"," ");}
     private String labelValue(String u,String... labs){String[] lines=u.split("\\n");for(int i=0;i<lines.length;i++){String l=clean(lines[i]);for(String lab:labs){int p=l.indexOf(lab);if(p>=0){String v=clean(l.substring(p+lab.length()).replaceFirst("^[ :.-]+",""));if(!v.isEmpty())return v;if(i+1<lines.length)return clean(lines[i+1]);}}}return "";}
@@ -416,6 +462,104 @@ public class MainActivityV2 extends FragmentActivity {
     private String findBirth(String u){Matcher m=Pattern.compile("(?<![0-9])([0-3][0-9])[/.-]([0-1][0-9])[/.-]((?:19|20)[0-9]{2})(?![0-9])").matcher(u);int yearNow=Calendar.getInstance().get(Calendar.YEAR);while(m.find()){String d=m.group(1)+"/"+m.group(2)+"/"+m.group(3);if(validDate(d)&&Integer.parseInt(m.group(3))<=yearNow-10)return d;}return "";}
     private boolean validDate(String s){try{Date d=new SimpleDateFormat("dd/MM/yyyy",Locale.ROOT).parse(s);return new SimpleDateFormat("dd/MM/yyyy",Locale.ROOT).format(d).equals(s);}catch(Exception e){return false;}}
     private String clean(String s){return s==null?"":s.trim().replaceAll("\\s+"," ");}
+
+    private String copyDocumentToArchive(Uri source, String prefix, String extension) throws Exception {
+        if (source == null) return "";
+        File dir = new File(getExternalFilesDir("documents"), "clients");
+        if (!dir.exists() && !dir.mkdirs()) throw new IOException("No se pudo crear el archivo de documentos");
+        String ext = extension == null || extension.isEmpty() ? ".bin" : (extension.startsWith(".") ? extension : "." + extension);
+        File out = new File(dir, prefix + "_" + System.currentTimeMillis() + ext);
+        try (InputStream in = getContentResolver().openInputStream(source); OutputStream os = new FileOutputStream(out)) {
+            if (in == null) throw new IOException("Documento no disponible");
+            byte[] buf = new byte[32768]; int n;
+            while ((n = in.read(buf)) >= 0) { if (n > 0) os.write(buf, 0, n); }
+        }
+        return out.getAbsolutePath();
+    }
+    private void addArchivedDocument(JSONObject client, String localPath, String sourceUri, String title, String type, String policyNumber) throws Exception {
+        if (localPath == null || localPath.isEmpty()) return;
+        JSONArray docs = client.optJSONArray("documents");
+        if (docs == null) docs = new JSONArray();
+        String source = sourceUri == null ? "" : sourceUri;
+        for (int i = 0; i < docs.length(); i++) {
+            JSONObject d = docs.optJSONObject(i);
+            if (d != null && ((source.length() > 0 && source.equals(d.optString("sourceUri", ""))) || localPath.equals(d.optString("localPath", "")))) return;
+        }
+        JSONObject d = new JSONObject();
+        d.put("id", UUID.randomUUID().toString());
+        d.put("title", title == null || title.isEmpty() ? "Documento" : title);
+        d.put("type", type == null ? "document" : type);
+        d.put("localPath", localPath);
+        d.put("sourceUri", source);
+        d.put("policyNumber", policyNumber == null ? "" : policyNumber);
+        d.put("createdAt", System.currentTimeMillis());
+        docs.put(d);
+        client.put("documents", docs);
+    }
+    private JSONObject findClientForPolicy(String id, String holder, String phone, String email) {
+        JSONObject c = findClientById(id);
+        if (c != null) return c;
+        String q = normalizeSearch(holder);
+        if (!q.isEmpty()) {
+            JSONArray a = clientsData();
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject x = a.optJSONObject(i);
+                if (x != null && q.equals(normalizeSearch(clientKey(x)))) return x;
+            }
+        }
+        if (phone != null && !phone.trim().isEmpty()) {
+            JSONArray a = clientsData();
+            String p = normalizeSearch(phone);
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject x = a.optJSONObject(i);
+                if (x != null && p.equals(normalizeSearch(x.optString("phone", "")))) return x;
+            }
+        }
+        if (email != null && !email.trim().isEmpty()) {
+            JSONArray a = clientsData();
+            String e = email.trim().toLowerCase(Locale.ROOT);
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject x = a.optJSONObject(i);
+                if (x != null && e.equals(x.optString("email", "").trim().toLowerCase(Locale.ROOT))) return x;
+            }
+        }
+        return null;
+    }
+    private void openArchivedDocument(String path, String type) {
+        try {
+            File f = new File(path);
+            if (!f.exists()) { Toast.makeText(this, "El documento ya no está disponible en el dispositivo.", Toast.LENGTH_LONG).show(); return; }
+            Uri u = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", f);
+            Intent i = new Intent(Intent.ACTION_VIEW);
+            String mime = "application/octet-stream";
+            if (type != null && type.toLowerCase(Locale.ROOT).contains("pdf")) mime = "application/pdf";
+            else if (type != null && type.toLowerCase(Locale.ROOT).contains("image")) mime = "image/*";
+            i.setDataAndType(u, mime);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception e) {
+            Toast.makeText(this, "No hay una aplicación para abrir este documento.", Toast.LENGTH_LONG).show();
+        }
+    }
+    private void addDocumentsToDetail(LinearLayout target, JSONObject client) {
+        target.addView(tv("DOCUMENTOS ADJUNTOS",16,BLUE,true));
+        JSONArray docs = client.optJSONArray("documents");
+        if (docs == null || docs.length() == 0) {
+            target.addView(tv("No hay documentos archivados todavía.",14,MUTED,false));
+            return;
+        }
+        for (int i = 0; i < docs.length(); i++) {
+            JSONObject d = docs.optJSONObject(i); if (d == null) continue;
+            String title = d.optString("title", "Documento");
+            String policy = d.optString("policyNumber", "");
+            String label = "📎 " + title + (policy.isEmpty() ? "" : " · Póliza " + policy);
+            Button b = btn(label, false);
+            String path = d.optString("localPath", "");
+            String type = d.optString("type", "document");
+            b.setOnClickListener(v -> openArchivedDocument(path, type));
+            target.addView(b, new LinearLayout.LayoutParams(-1, dp(58)));
+        }
+    }
 
     private JSONObject findClientById(String id){if(id==null||id.isEmpty())return null;JSONArray a=clientsData();for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&id.equalsIgnoreCase(x.optString("identityNumber","")))return x;}return null;}
     private JSONObject findClientByName(String name){String q=normalizeSearch(name);if(q.isEmpty())return null;JSONArray a=clientsData();for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&normalizeSearch(clientKey(x)).equals(q))return x;}return null;}
