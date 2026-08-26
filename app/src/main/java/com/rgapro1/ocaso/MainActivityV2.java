@@ -105,12 +105,64 @@ public class MainActivityV2 extends FragmentActivity {
             Uri u=request==CAMERA?cameraUri:(data==null?null:data.getData());if(u==null)return;
             documentUri=u;documentKind=1;currentBitmap=loadBitmap(u);previewBitmap=currentBitmap;currentImagePath=u.toString();
             if(request==CAMERA){if(side==2){backBitmap=currentBitmap;backImagePath=currentImagePath;}else{frontBitmap=currentBitmap;frontImagePath=currentImagePath;}}
-            else {frontBitmap=currentBitmap;frontImagePath=currentImagePath;}
+            else {if(side==2 || (frontBitmap!=null && backBitmap==null)){backBitmap=currentBitmap;backImagePath=currentImagePath;}else{frontBitmap=currentBitmap;frontImagePath=currentImagePath;}}
             reviewDniPair();
         }catch(Exception e){Toast.makeText(this,"No se pudo cargar el documento: "+e.getMessage(),Toast.LENGTH_LONG).show();}
     }
     private Bitmap loadBitmap(Uri u)throws Exception{InputStream in=getContentResolver().openInputStream(u);Bitmap b=BitmapFactory.decodeStream(in);if(in!=null)in.close();if(b==null)throw new IOException("imagen vacía");return b;}
     private Bitmap renderPdfFirstPage(Uri u)throws Exception{try(ParcelFileDescriptor pfd=getContentResolver().openFileDescriptor(u,"r")){if(pfd==null)throw new IOException("PDF no disponible");android.graphics.pdf.PdfRenderer renderer=new android.graphics.pdf.PdfRenderer(pfd);try{if(renderer.getPageCount()==0)throw new IOException("PDF vacío");android.graphics.pdf.PdfRenderer.Page page=renderer.openPage(0);int w=Math.min(1600,Math.max(900,page.getWidth()*2));int h=Math.min(2200,Math.max(1200,page.getHeight()*2));Bitmap b=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);page.render(b,null,null,android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);page.close();return b;}finally{renderer.close();}}}
+
+    private String normalizeOcrIdentity(String s){
+        return (s==null?"":s).toUpperCase(Locale.ROOT)
+            .replace("NACIMlENTO","NACIMIENTO")
+            .replace("NACIMlENT0","NACIMIENTO")
+            .replace("N0MBRE","NOMBRE")
+            .replace("APELLlDOS","APELLIDOS")
+            .replace("VALlDEZ","VALIDEZ");
+    }
+    private boolean validDniLetter(String v){
+        if(v==null||!v.matches("\\d{8}[A-Z]"))return false;
+        String t="TRWAGMYFPDXBNJZSQVHLCKE";
+        try{return t.charAt(Integer.parseInt(v.substring(0,8))%23)==v.charAt(8);}catch(Exception e){return false;}
+    }
+    private String extractDniRobust(String text){
+        String u=normalizeOcrIdentity(text).replaceAll("[^A-Z0-9<]"," ");
+        Matcher m=Pattern.compile("(?<![0-9])([0-9]{8}[A-Z])(?![A-Z0-9])").matcher(u);
+        while(m.find())if(validDniLetter(m.group(1)))return m.group(1);
+        m=Pattern.compile("(?<![0-9])([0-9]{4})\\s*([0-9]{4})\\s*([A-Z])(?![A-Z0-9])").matcher(u);
+        while(m.find()){String v=m.group(1)+m.group(2)+m.group(3);if(validDniLetter(v))return v;}
+        m=Pattern.compile("IDESP[A-Z0-9<]*?([0-9]{8}[A-Z])").matcher(u);
+        while(m.find())if(validDniLetter(m.group(1)))return m.group(1);
+        return "";
+    }
+    private String extractBirthDateRobust(String text){
+        String u=normalizeOcrIdentity(text);
+        Matcher m=Pattern.compile("(?:NACIMIENTO|FECHA\\s+DE\\s+NACIMIENTO)[^0-9]{0,30}(\\d{2})\\s*[./ -]\\s*(\\d{2})\\s*[./ -]\\s*(\\d{4})").matcher(u);
+        if(m.find())return m.group(1)+"/"+m.group(2)+"/"+m.group(3);
+        m=Pattern.compile("(\\d{6})[0-9][MF<](\\d{6})[0-9]").matcher(u.replace(" ",""));
+        if(m.find()){String d=m.group(1);int yy=Integer.parseInt(d.substring(0,2));int year=yy>=30?1900+yy:2000+yy;return String.format(Locale.ROOT,"%02d/%02d/%04d",Integer.parseInt(d.substring(4,6)),Integer.parseInt(d.substring(2,4)),year);}
+        return "";
+    }
+    private String extractNameRobust(String text){
+        String u=normalizeOcrIdentity(text);
+        Matcher m=Pattern.compile("(?m)^APELLIDOS?\\s*[:.-]?\\s*(.+?)(?=\\n(?:NOMBRE|SEXO|NACIONALIDAD|NACIMIENTO)|$)").matcher(u);
+        String sur=m.find()?m.group(1).trim():"";
+        m=Pattern.compile("(?m)^NOMBRES?\\s*[:.-]?\\s*(.+?)(?=\\n(?:SEXO|NACIONALIDAD|NACIMIENTO)|$)").matcher(u);
+        String nam=m.find()?m.group(1).trim():"";
+        m=Pattern.compile("([A-ZÁÉÍÓÚÑ]+(?:<[A-ZÁÉÍÓÚÑ]+)+)<<([A-ZÁÉÍÓÚÑ]+(?:<[A-ZÁÉÍÓÚÑ]+)+)").matcher(u.replace(" ",""));
+        if(m.find()){if(sur.isEmpty())sur=m.group(1).replace('<',' ').trim();if(nam.isEmpty())nam=m.group(2).replace('<',' ').trim();}
+        return (nam+" "+sur).trim().replaceAll("\\s+"," ");
+    }
+    private JSONObject parseEssentialRobust(String text){
+        JSONObject x=parseEssential(text);
+        try{
+            String dni=extractDniRobust(text);if(!dni.isEmpty())x.put("identityNumber",dni);
+            String birth=extractBirthDateRobust(text);if(!birth.isEmpty())x.put("birthDate",birth);
+            String full=extractNameRobust(text);if(!full.isEmpty())x.put("fullName",full);
+            int c=0;if(!dni.isEmpty())c+=45;if(!birth.isEmpty())c+=35;if(!full.isEmpty())c+=20;x.put("confidence",Math.max(x.optInt("confidence",0),c));
+        }catch(Exception ignored){}
+        return x;
+    }
 
     private void reviewDniPair(){
         LinearLayout wrap=col();wrap.setPadding(dp(8),dp(4),dp(8),dp(4));
@@ -127,11 +179,17 @@ public class MainActivityV2 extends FragmentActivity {
     private void processDniPairOcr(){
         TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         if(frontBitmap==null||backBitmap==null){r.close();return;}
-        r.process(InputImage.fromBitmap(frontBitmap,0)).addOnSuccessListener(f->{frontText=f==null?"":f.getText();r.process(InputImage.fromBitmap(backBitmap,0)).addOnSuccessListener(b->{backText=b==null?"":b.getText();currentBitmap=frontBitmap;previewBitmap=frontBitmap;currentImagePath=frontImagePath;r.close();showIdentityReview(parseEssential(frontText+"\n"+backText));}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR reverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR anverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});
+        r.process(InputImage.fromBitmap(frontBitmap,0)).addOnSuccessListener(f->{frontText=f==null?"":f.getText();r.process(InputImage.fromBitmap(backBitmap,0)).addOnSuccessListener(b->{backText=b==null?"":b.getText();currentBitmap=frontBitmap;previewBitmap=frontBitmap;currentImagePath=frontImagePath;r.close();showIdentityReview(parseEssentialRobust(frontText+"\\n"+backText));}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR reverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR anverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});
     }
 
+
     private void processCurrentDocument(){if(documentUri==null||documentKind==0){Toast.makeText(this,"Primero selecciona un documento.",Toast.LENGTH_LONG).show();return;}if(documentKind==2){PdfOcrHelper.process(this,documentUri,new PdfOcrHelper.Callback(){public void onSuccess(String text){runOnUiThread(()->showPolicyReview(OcasoPolicyParser.parse(text),text));}public void onError(Exception e){runOnUiThread(()->Toast.makeText(MainActivityV2.this,"PDF: "+e.getMessage(),Toast.LENGTH_LONG).show());}});}else processImage();}
-    private void processImage(){TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);r.process(InputImage.fromBitmap(currentBitmap,0)).addOnSuccessListener(t->{String text=t.getText()==null?"":t.getText();if(side==2)backText=text;else frontText=text;JSONObject parsed=parseEssential(frontText+"\n"+backText);r.close();showIdentityReview(parsed);}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR: "+e.getMessage(),Toast.LENGTH_LONG).show();});}
+    private void processImage(){
+        if(currentBitmap==null){Toast.makeText(this,"Primero selecciona un JPEG válido.",Toast.LENGTH_LONG).show();return;}
+        TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+        r.process(InputImage.fromBitmap(currentBitmap,0)).addOnSuccessListener(t->{String text=t.getText()==null?"":t.getText();if(side==2)backText=text;else frontText=text;r.close();showIdentityReview(parseEssentialRobust(frontText+"\\n"+backText));}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR: "+e.getMessage(),Toast.LENGTH_LONG).show();});
+    }
+
 
     private void showIdentityReview(JSONObject x){shell("Revisión DNI/NIE","Comprueba los datos antes de guardar");body.addView(tv("2 · DOCUMENTO LEÍDO",18,BLUE,true));if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);body.addView(iv,new LinearLayout.LayoutParams(-1,dp(300)));}body.addView(tv("3 · DATOS DETECTADOS",18,BLUE,true));fullNameE=input("Nombre y apellidos");dniE=input("DNI/NIE");birthE=input("Fecha de nacimiento");addressE=input("Dirección");phoneE=input("Teléfono (lo puedes añadir tú)");fullNameE.setText(x.optString("fullName",""));dniE.setText(x.optString("identityNumber",""));birthE.setText(x.optString("birthDate",""));addressE.setText(x.optString("address",""));confidenceTv=tv("Confianza de lectura: "+x.optInt("confidence",0)+"% · Comprueba visualmente el documento.",14,MUTED,false);body.addView(confidenceTv);for(EditText e:new EditText[]{fullNameE,dniE,birthE,addressE,phoneE})body.addView(e,new LinearLayout.LayoutParams(-1,dp(54)));Button accept=btn("✅ ACEPTAR DATOS Y GUARDAR",true),reject=btn("❌ RECHAZAR / VOLVER A DOCUMENTO",false);body.addView(accept,new LinearLayout.LayoutParams(-1,dp(62)));body.addView(reject,new LinearLayout.LayoutParams(-1,dp(58)));accept.setOnClickListener(v->saveIdentity());reject.setOnClickListener(v->ocrPage());}
 
