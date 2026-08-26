@@ -25,6 +25,9 @@ jobs:
       - name: Apply product-specific policy OCR fields
         run: python3 Scripts/patch_policy_product_ui.py
 
+      - name: Apply client document archive patch
+        run: python3 Scripts/patch_client_document_archive.py
+
       - name: Normalize Java source
         run: python3 Scripts/normalize_build_sources.py
 
