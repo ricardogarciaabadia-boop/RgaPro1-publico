@@ -76,7 +76,31 @@ public class MainActivityV2 extends FragmentActivity {
 
     private void editClient(JSONObject old){LinearLayout l=col();EditText n=input("Nombre y apellidos"),d=input("DNI/NIE"),b=input("Fecha nacimiento dd/MM/yyyy"),ph=input("Teléfono"),ad=input("Dirección"),em=input("Email");if(old!=null){n.setText(old.optString("holder",clientKey(old)));d.setText(old.optString("identityNumber",""));b.setText(old.optString("birthDate",""));ph.setText(old.optString("phone",""));ad.setText(old.optString("address",""));em.setText(old.optString("email",""));}for(EditText e:new EditText[]{n,d,b,ph,ad,em})l.addView(e,new LinearLayout.LayoutParams(-1,dp(52)));new AlertDialog.Builder(this).setTitle(old==null?"Nuevo cliente":"Editar cliente").setView(l).setNegativeButton("Cancelar",null).setPositiveButton("Guardar",(di,w)->{try{JSONObject x=old==null?new JSONObject():old;String full=n.getText().toString().trim();x.put("holder",full);x.put("name",full);x.put("surname","");x.put("identityNumber",d.getText().toString().trim().toUpperCase(Locale.ROOT));x.put("birthDate",b.getText().toString().trim());x.put("phone",ph.getText().toString().trim());x.put("address",ad.getText().toString().trim());x.put("email",em.getText().toString().trim());if(!x.has("policies"))x.put("policies",new JSONArray());upsertClient(x);clients();}catch(Exception e){Toast.makeText(this,"No se pudo guardar",Toast.LENGTH_LONG).show();}}).show();}
 
-    private void policyDetail(JSONObject p){LinearLayout l=col();addRead(l,"Número de póliza",p.optString("number",""));addRead(l,"Tomador",p.optString("holder",""));addRead(l,"DNI/NIE",p.optString("identityNumber",""));addRead(l,"Dirección",p.optString("address",""));addRead(l,"Teléfono",p.optString("phone",""));addRead(l,"Email",p.optString("email",""));addRead(l,"Precio / recibo",p.optString("receipt",""));addRead(l,"Capital asegurado",p.optString("capital",""));addRead(l,"Total decesos",p.optString("decesos",""));addRead(l,"Decesos nivelada",p.optString("decesosLevelada",""));body.addView(tv("ASEGURADOS",16,BLUE,true));JSONArray ins=p.optJSONArray("insured");if(ins!=null)for(int i=0;i<ins.length();i++){JSONObject a=ins.optJSONObject(i);if(a==null)continue;addRead(l,a.optString("name","Asegurado"),"DNI: "+a.optString("identityNumber","—")+" · Nacimiento: "+a.optString("birthDate","—"));}new AlertDialog.Builder(this).setTitle("Póliza Ocaso").setView(l).setPositiveButton("Cerrar",null).show();}
+    private void policyDetail(JSONObject p){
+        LinearLayout l=col();
+        String product=p.optString("policyType",p.optString("type","Póliza"));
+        boolean decesos="Decesos".equalsIgnoreCase(product);
+        addRead(l,"Producto",product);
+        addRead(l,"Número de póliza",p.optString("number",""));
+        addRead(l,"Tomador",p.optString("holder",""));
+        addRead(l,"DNI/NIE",p.optString("identityNumber",""));
+        addRead(l,"Dirección",p.optString("address",""));
+        addRead(l,"Teléfono",p.optString("phone",""));
+        addRead(l,"Email",p.optString("email",""));
+        addRead(l,"Precio / recibo",p.optString("receipt",""));
+        if(decesos){
+            addRead(l,"Capital de decesos",p.optString("capital",""));
+            addRead(l,"Total decesos",p.optString("decesos",""));
+            addRead(l,"Decesos nivelada",p.optString("decesosLevelada",""));
+        }else if(!p.optString("capital","").trim().isEmpty()){
+            addRead(l,"Capital",p.optString("capital",""));
+        }
+        l.addView(tv("ASEGURADOS",16,BLUE,true));
+        JSONArray ins=p.optJSONArray("insured");
+        if(ins!=null)for(int i=0;i<ins.length();i++){JSONObject a=ins.optJSONObject(i);if(a==null)continue;addRead(l,a.optString("name","Asegurado"),"DNI: "+a.optString("identityNumber","—")+" · Nacimiento: "+a.optString("birthDate","—"));}
+        new AlertDialog.Builder(this).setTitle("Póliza Ocaso").setView(l).setPositiveButton("Cerrar",null).show();
+    }
+
 
     private void policies(){shell("Pólizas","Pólizas Ocaso guardadas");JSONArray a=clientsData();boolean any=false;for(int i=0;i<a.length();i++){JSONObject c=a.optJSONObject(i);if(c==null)continue;JSONArray ps=c.optJSONArray("policies");if(ps==null)continue;for(int j=0;j<ps.length();j++){JSONObject p=ps.optJSONObject(j);if(p==null)continue;any=true;Button b=btn("▣ "+p.optString("type","OCASO")+" · "+p.optString("number","—")+System.lineSeparator()+clientKey(c),false);b.setOnClickListener(v->policyDetail(p));body.addView(b,new LinearLayout.LayoutParams(-1,dp(72)));}}if(!any)body.addView(tv("No hay pólizas guardadas.",15,MUTED,false));Button scan=btn("📄 SUBIR PÓLIZA PDF",true);scan.setOnClickListener(v->choosePdf());body.addView(scan,new LinearLayout.LayoutParams(-1,dp(60)));}
 
@@ -177,27 +201,120 @@ public class MainActivityV2 extends FragmentActivity {
     }
 
     private void processDniPairOcr(){
-        TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
-        if(frontBitmap==null||backBitmap==null){r.close();return;}
+        TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS); if(frontBitmap==null||backBitmap==null){r.close();return;}
         r.process(InputImage.fromBitmap(frontBitmap,0)).addOnSuccessListener(f->{frontText=f==null?"":f.getText();r.process(InputImage.fromBitmap(backBitmap,0)).addOnSuccessListener(b->{backText=b==null?"":b.getText();currentBitmap=frontBitmap;previewBitmap=frontBitmap;currentImagePath=frontImagePath;r.close();showIdentityReview(parseEssentialRobust(frontText+"\\n"+backText));}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR reverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR anverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});
     }
+
 
 
     private void processCurrentDocument(){if(documentUri==null||documentKind==0){Toast.makeText(this,"Primero selecciona un documento.",Toast.LENGTH_LONG).show();return;}if(documentKind==2){PdfOcrHelper.process(this,documentUri,new PdfOcrHelper.Callback(){public void onSuccess(String text){runOnUiThread(()->showPolicyReview(OcasoPolicyParser.parse(text),text));}public void onError(Exception e){runOnUiThread(()->Toast.makeText(MainActivityV2.this,"PDF: "+e.getMessage(),Toast.LENGTH_LONG).show());}});}else processImage();}
     private void processImage(){
         if(currentBitmap==null){Toast.makeText(this,"Primero selecciona un JPEG válido.",Toast.LENGTH_LONG).show();return;}
-        TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
-        r.process(InputImage.fromBitmap(currentBitmap,0)).addOnSuccessListener(t->{String text=t.getText()==null?"":t.getText();if(side==2)backText=text;else frontText=text;r.close();showIdentityReview(parseEssentialRobust(frontText+"\\n"+backText));}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR: "+e.getMessage(),Toast.LENGTH_LONG).show();});
+        TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);r.process(InputImage.fromBitmap(currentBitmap,0)).addOnSuccessListener(t->{String text=t.getText()==null?"":t.getText();if(side==2)backText=text;else frontText=text;r.close();showIdentityReview(parseEssentialRobust(frontText+"\\n"+backText));}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR: "+e.getMessage(),Toast.LENGTH_LONG).show();});
     }
+
 
 
     private void showIdentityReview(JSONObject x){shell("Revisión DNI/NIE","Comprueba los datos antes de guardar");body.addView(tv("2 · DOCUMENTO LEÍDO",18,BLUE,true));if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);body.addView(iv,new LinearLayout.LayoutParams(-1,dp(300)));}body.addView(tv("3 · DATOS DETECTADOS",18,BLUE,true));fullNameE=input("Nombre y apellidos");dniE=input("DNI/NIE");birthE=input("Fecha de nacimiento");addressE=input("Dirección");phoneE=input("Teléfono (lo puedes añadir tú)");fullNameE.setText(x.optString("fullName",""));dniE.setText(x.optString("identityNumber",""));birthE.setText(x.optString("birthDate",""));addressE.setText(x.optString("address",""));confidenceTv=tv("Confianza de lectura: "+x.optInt("confidence",0)+"% · Comprueba visualmente el documento.",14,MUTED,false);body.addView(confidenceTv);for(EditText e:new EditText[]{fullNameE,dniE,birthE,addressE,phoneE})body.addView(e,new LinearLayout.LayoutParams(-1,dp(54)));Button accept=btn("✅ ACEPTAR DATOS Y GUARDAR",true),reject=btn("❌ RECHAZAR / VOLVER A DOCUMENTO",false);body.addView(accept,new LinearLayout.LayoutParams(-1,dp(62)));body.addView(reject,new LinearLayout.LayoutParams(-1,dp(58)));accept.setOnClickListener(v->saveIdentity());reject.setOnClickListener(v->ocrPage());}
 
     private void saveIdentity(){try{String full=fullNameE.getText().toString().trim(),id=dniE.getText().toString().trim().toUpperCase(Locale.ROOT),birth=birthE.getText().toString().trim();if(!isValidIdentity(id)){Toast.makeText(this,"DNI/NIE no válido. Revísalo antes de guardar.",Toast.LENGTH_LONG).show();return;}if(!validDate(birth)){Toast.makeText(this,"Fecha de nacimiento no válida.",Toast.LENGTH_LONG).show();return;}JSONObject x=findClientById(id);if(x==null)x=new JSONObject();x.put("holder",full);x.put("name",full);x.put("surname","");x.put("identityNumber",id);x.put("birthDate",birth);x.put("address",addressE.getText().toString().trim());x.put("phone",phoneE.getText().toString().trim());x.put("image",currentImagePath);x.put("frontImage",frontImagePath);x.put("backImage",backImagePath);if(!x.has("policies"))x.put("policies",new JSONArray());upsertClient(x);Toast.makeText(this,"Cliente guardado.",Toast.LENGTH_LONG).show();detail(x);}catch(Exception e){Toast.makeText(this,"No se pudo guardar: "+e.getMessage(),Toast.LENGTH_LONG).show();}}
 
-    private void showPolicyReview(JSONObject p,String raw){shell("Revisión póliza Ocaso","Comprueba los datos y el documento antes de guardar");body.addView(tv("2 · DOCUMENTO PDF",18,BLUE,true));if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);body.addView(iv,new LinearLayout.LayoutParams(-1,dp(300)));}body.addView(tv("3 · DATOS ÚTILES DETECTADOS",18,BLUE,true));policyNumberE=input("Número de póliza");holderE=input("Tomador (nombre y apellidos)");policyDniE=input("DNI/NIE");policyAddressE=input("Dirección");policyPhoneE=input("Teléfono");policyEmailE=input("Email");receiptE=input("Precio / total recibo");capitalE=input("Capital asegurado");decesosE=input("Total decesos");decesosLeveladaE=input("Decesos nivelada");policyNumberE.setText(p.optString("number",""));holderE.setText(p.optString("holder",""));policyDniE.setText(p.optString("identityNumber",""));policyAddressE.setText(p.optString("address",""));policyPhoneE.setText(p.optString("phone",""));policyEmailE.setText(p.optString("email",""));receiptE.setText(p.optString("receipt",""));capitalE.setText(p.optString("capital",""));decesosE.setText(p.optString("decesos",""));decesosLeveladaE.setText(p.optString("decesosLevelada",""));for(EditText e:new EditText[]{policyNumberE,holderE,policyDniE,policyAddressE,policyPhoneE,policyEmailE,receiptE,capitalE,decesosE,decesosLeveladaE})body.addView(e,new LinearLayout.LayoutParams(-1,dp(54)));body.addView(tv("ASEGURADOS DETECTADOS",16,BLUE,true));JSONArray ins=p.optJSONArray("insured");if(ins!=null)for(int i=0;i<ins.length();i++){JSONObject a=ins.optJSONObject(i);if(a!=null)body.addView(tv("• "+a.optString("name","")+" · "+a.optString("identityNumber","—")+" · "+a.optString("birthDate","—"),14,TEXT,false));}Button accept=btn("✅ ACEPTAR DATOS Y ASOCIAR PÓLIZA",true),reject=btn("❌ RECHAZAR / VOLVER",false);body.addView(accept,new LinearLayout.LayoutParams(-1,dp(64)));body.addView(reject,new LinearLayout.LayoutParams(-1,dp(58)));accept.setOnClickListener(v->savePolicy(raw,ins));reject.setOnClickListener(v->ocrPage());}
+    private void showPolicyReview(JSONObject p,String raw){
+        shell("Revisión póliza Ocaso","Comprueba los datos y el documento antes de guardar");
+        body.addView(tv("2 · DOCUMENTO PDF",18,BLUE,true));
+        if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);body.addView(iv,new LinearLayout.LayoutParams(-1,dp(300)));}
+        body.addView(tv("3 · DATOS ÚTILES DETECTADOS",18,BLUE,true));
 
-    private void savePolicy(String raw,JSONArray insured){try{String id=policyDniE.getText().toString().trim().toUpperCase(Locale.ROOT),number=policyNumberE.getText().toString().trim();if(number.isEmpty()){Toast.makeText(this,"El número de póliza es obligatorio.",Toast.LENGTH_LONG).show();return;}JSONObject c=findClientById(id);if(c==null)c=findClientByName(holderE.getText().toString().trim());if(c==null)c=new JSONObject();c.put("holder",holderE.getText().toString().trim());c.put("name",holderE.getText().toString().trim());c.put("surname","");if(!id.isEmpty())c.put("identityNumber",id);c.put("address",policyAddressE.getText().toString().trim());c.put("phone",policyPhoneE.getText().toString().trim());c.put("email",policyEmailE.getText().toString().trim());JSONArray ps=c.optJSONArray("policies");if(ps==null)ps=new JSONArray();JSONObject pol=new JSONObject();pol.put("type","OCASO");pol.put("number",number);pol.put("holder",holderE.getText().toString().trim());pol.put("identityNumber",id);pol.put("address",policyAddressE.getText().toString().trim());pol.put("phone",policyPhoneE.getText().toString().trim());pol.put("email",policyEmailE.getText().toString().trim());pol.put("receipt",receiptE.getText().toString().trim());pol.put("capital",capitalE.getText().toString().trim());pol.put("decesos",decesosE.getText().toString().trim());pol.put("decesosLevelada",decesosLeveladaE.getText().toString().trim());pol.put("insured",insured==null?new JSONArray():insured);pol.put("documentUri",documentUri==null?"":documentUri.toString());pol.put("ocrText",raw);boolean replaced=false;for(int i=0;i<ps.length();i++){JSONObject old=ps.optJSONObject(i);if(old!=null&&number.equals(old.optString("number",""))){ps.put(i,pol);replaced=true;break;}}if(!replaced)ps.put(pol);c.put("policies",ps);upsertClient(c);Toast.makeText(this,"Póliza guardada y asociada al cliente.",Toast.LENGTH_LONG).show();detail(c);}catch(Exception e){Toast.makeText(this,"No se pudo guardar la póliza: "+e.getMessage(),Toast.LENGTH_LONG).show();}}
+        String product=p.optString("policyType",p.optString("type","Otros"));
+        boolean decesos="Decesos".equalsIgnoreCase(product);
+
+        policyNumberE=input("Número de póliza");
+        holderE=input("Tomador (nombre y apellidos)");
+        policyDniE=input("DNI/NIE");
+        policyAddressE=input("Dirección");
+        policyPhoneE=input("Teléfono");
+        policyEmailE=input("Email");
+        receiptE=input("Precio / total recibo");
+        capitalE=input("Capital");
+        decesosE=input("Total decesos");
+        decesosLeveladaE=input("Decesos nivelada");
+
+        policyNumberE.setText(p.optString("number",""));
+        holderE.setText(p.optString("holder",""));
+        policyDniE.setText(p.optString("identityNumber",p.optString("dni","")));
+        policyAddressE.setText(p.optString("address",""));
+        policyPhoneE.setText(p.optString("phone",""));
+        policyEmailE.setText(p.optString("email",""));
+        receiptE.setText(p.optString("receipt",""));
+        capitalE.setText(p.optString("capital",""));
+        decesosE.setText(p.optString("decesos",""));
+        decesosLeveladaE.setText(p.optString("decesosLevelada",""));
+
+        addPolicyField("PRODUCTO",product,null);
+        addPolicyField("Nº DE PÓLIZA",null,policyNumberE);
+        addPolicyField("TOMADOR",null,holderE);
+        addPolicyField("DNI / NIE",null,policyDniE);
+        addPolicyField("DIRECCIÓN",null,policyAddressE);
+        addPolicyField("TELÉFONO",null,policyPhoneE);
+        addPolicyField("EMAIL",null,policyEmailE);
+        addPolicyField("PRECIO / RECIBO",null,receiptE);
+
+        if(decesos){
+            addPolicyField("CAPITAL DE DECESOS",null,capitalE);
+            addPolicyField("TOTAL DECESOS",null,decesosE);
+            addPolicyField("DECESOS NIVELADA",null,decesosLeveladaE);
+        }else if(!capitalE.getText().toString().trim().isEmpty()){
+            addPolicyField("CAPITAL",null,capitalE);
+        }
+
+        body.addView(tv("ASEGURADOS DETECTADOS",16,BLUE,true));
+        JSONArray ins=p.optJSONArray("insured");
+        if(ins!=null)for(int i=0;i<ins.length();i++){JSONObject a=ins.optJSONObject(i);if(a!=null)body.addView(tv("• "+a.optString("name","")+" · "+a.optString("identityNumber","—")+" · "+a.optString("birthDate","—"),14,TEXT,false));}
+        Button accept=btn("✅ ACEPTAR DATOS Y ASOCIAR PÓLIZA",true),reject=btn("❌ RECHAZAR / VOLVER",false);
+        body.addView(accept,new LinearLayout.LayoutParams(-1,dp(64)));body.addView(reject,new LinearLayout.LayoutParams(-1,dp(58)));
+        accept.setOnClickListener(v->savePolicy(raw,ins));reject.setOnClickListener(v->ocrPage());
+    }
+
+    private void addPolicyField(String label,String value,EditText field){
+        body.addView(tv(label,13,MUTED,true));
+        if(field!=null) body.addView(field,new LinearLayout.LayoutParams(-1,dp(54)));
+        else body.addView(tv(value==null?"":value,16,TEXT,false),new LinearLayout.LayoutParams(-1,dp(54)));
+    }
+
+
+    private void savePolicy(String raw,JSONArray insured){
+        try{
+            String id=policyDniE.getText().toString().trim().toUpperCase(Locale.ROOT),number=policyNumberE.getText().toString().trim();
+            if(number.isEmpty()){Toast.makeText(this,"El número de póliza es obligatorio.",Toast.LENGTH_LONG).show();return;}
+            JSONObject c=findClientById(id);if(c==null)c=findClientByName(holderE.getText().toString().trim());if(c==null)c=new JSONObject();
+            c.put("holder",holderE.getText().toString().trim());c.put("name",holderE.getText().toString().trim());c.put("surname","");
+            if(!id.isEmpty())c.put("identityNumber",id);c.put("address",policyAddressE.getText().toString().trim());c.put("phone",policyPhoneE.getText().toString().trim());c.put("email",policyEmailE.getText().toString().trim());
+            JSONArray ps=c.optJSONArray("policies");if(ps==null)ps=new JSONArray();
+            JSONObject pol=new JSONObject();
+            String product=currentPolicyProduct(raw);
+            pol.put("type","OCASO");pol.put("policyType",product);pol.put("number",number);pol.put("holder",holderE.getText().toString().trim());pol.put("identityNumber",id);pol.put("address",policyAddressE.getText().toString().trim());pol.put("phone",policyPhoneE.getText().toString().trim());pol.put("email",policyEmailE.getText().toString().trim());pol.put("receipt",receiptE.getText().toString().trim());pol.put("capital",capitalE.getText().toString().trim());
+            if("Decesos".equalsIgnoreCase(product)){
+                pol.put("decesos",decesosE.getText().toString().trim());pol.put("decesosLevelada",decesosLeveladaE.getText().toString().trim());
+            }else{
+                pol.put("decesos","");pol.put("decesosLevelada","");
+            }
+            pol.put("insured",insured==null?new JSONArray():insured);pol.put("documentUri",documentUri==null?"":documentUri.toString());pol.put("ocrText",raw);
+            boolean replaced=false;for(int i=0;i<ps.length();i++){JSONObject old=ps.optJSONObject(i);if(old!=null&&number.equals(old.optString("number",""))){ps.put(i,pol);replaced=true;break;}}
+            if(!replaced)ps.put(pol);c.put("policies",ps);upsertClient(c);Toast.makeText(this,"Póliza guardada y asociada al cliente.",Toast.LENGTH_LONG).show();detail(c);
+        }catch(Exception e){Toast.makeText(this,"No se pudo guardar la póliza: "+e.getMessage(),Toast.LENGTH_LONG).show();}
+    }
+
+    private String currentPolicyProduct(String raw){
+        String u=raw==null?"":raw.toUpperCase(Locale.ROOT);
+        if(u.contains("DECESOS")||u.contains("ASISTENCIA FAMILIAR"))return "Decesos";
+        if(u.contains("VIDA")||u.contains("FALLECIMIENTO"))return "Vida";
+        if(u.contains("ACCIDENTE"))return "Accidentes";
+        if(u.contains("HOGAR"))return "Hogar";
+        if(u.contains("SALUD"))return "Salud";
+        if(u.contains("AUTOMOVIL")||u.contains("AUTOMÓVIL")||u.contains("VEHICULO")||u.contains("VEHÍCULO"))return "Auto";
+        return "Otros";
+    }
+
 
     private JSONObject parseEssential(String raw){JSONObject x=new JSONObject();try{String u=normalize(raw);String id=findId(u);String birth=findBirth(u);String name=mrzName(raw);if(name.isEmpty())name=labelValue(u,"NOMBRE","APELLIDOS");String address=labelValue(u,"DOMICILIO","DIRECCIÓN","DIRECCION");x.put("fullName",clean(name));x.put("identityNumber",id);x.put("birthDate",birth);x.put("address",address);int c=0;if(!id.isEmpty())c+=40;if(!name.isEmpty())c+=30;if(!birth.isEmpty())c+=20;if(!address.isEmpty())c+=10;x.put("confidence",c);}catch(Exception ignored){}return x;}
     private String normalize(String s){return (s==null?"":s).toUpperCase(Locale.ROOT).replace('Á','A').replace('É','E').replace('Í','I').replace('Ó','O').replace('Ú','U').replace((char)13,'\n').replaceAll("[ \\t]+"," ");}
