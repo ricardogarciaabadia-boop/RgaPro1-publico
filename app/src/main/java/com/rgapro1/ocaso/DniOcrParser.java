@@ -3,9 +3,7 @@ package com.rgapro1.ocaso;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.Locale;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -29,7 +27,6 @@ public final class DniOcrParser {
         Result r = new Result();
         String text = normalize(raw);
         String[] lines = text.split("\\n");
-
         r.surname = value(lines, "APELLIDOS", "APELLIDO");
         r.name = value(lines, "NOMBRE", "NOMBRES");
         r.nationality = value(lines, "NACIONALIDAD");
@@ -45,13 +42,11 @@ public final class DniOcrParser {
         Collections.sort(ids, new Comparator<Candidate>() { public int compare(Candidate a, Candidate b) { return b.score - a.score; } });
         for (Candidate c : ids) if (validIdentity(c.value)) { r.dni = c.value; break; }
         if (r.dni.isEmpty() && !ids.isEmpty()) r.dni = ids.get(0).value;
-
         r.birthDate = bestBirthDate(text, r.issueDate, r.validityDate);
 
         String mrz = extractMrz(lines);
         r.mrz = mrz;
         if (!mrz.isEmpty()) parseMrz(mrz, r);
-
         if (r.name.isEmpty() || r.surname.isEmpty()) {
             String[] names = mrzNames(mrz);
             if (r.surname.isEmpty()) r.surname = names[0];
@@ -99,41 +94,34 @@ public final class DniOcrParser {
 
     private static String repairIdOcr(String line) {
         String s = line.toUpperCase(Locale.ROOT);
-        // Only repair OCR confusions inside candidate-like alphanumeric runs; never alter free-form names.
         s = s.replaceAll("(?<![A-Z0-9])[OQ](?=[0-9]{7,8}[A-Z])(?![A-Z0-9])", "0");
         s = s.replaceAll("(?<![A-Z0-9])([0-9]{4})\\s*([0-9]{4})[OQ](?![A-Z0-9])", "$1$2O");
-        s = s.replaceAll("(?<![A-Z0-9])([XYZ])([0-9]{7})0(?![A-Z0-9])", "$1$2O");
         return s.replace("ID ESP", "IDESP").replace("ID-ESP", "IDESP");
     }
 
     private static String bestBirthDate(String text, String issue, String validity) {
-        Matcher labeled = Pattern.compile("(?:FECHA DE NACIMIENTO|NACIMIENTO|NAC)[^0-9]{0,40}("+DATE.pattern().substring(1, DATE.pattern().length()-1)+")").matcher(text);
-        if (labeled.find()) {
-            String d = normalizeDate(labeled.group(1));
+        Pattern labeled = Pattern.compile("(?:FECHA DE NACIMIENTO|NACIMIENTO|NAC)[^0-9]{0,40}([0-3]?[0-9]\\s*[/.-]\\s*[0-1]?[0-9]\\s*[/.-]\\s*(?:19|20)[0-9]{2})");
+        Matcher lm = labeled.matcher(text);
+        if (lm.find()) {
+            String d = normalizeDate(lm.group(1));
             if (validDate(d)) return d;
         }
         Matcher m = DATE.matcher(text);
-        String best = "";
         while (m.find()) {
             String d = normalizeDate(m.group());
             if (!validDate(d) || d.equals(issue) || d.equals(validity)) continue;
-            if (year(d) <= java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) - 10) {
-                best = d;
-                break;
-            }
+            if (year(d) <= java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) - 10) return d;
         }
-        return best;
+        return "";
     }
 
     private static void parseMrz(String mrz, Result r) {
         String compact = mrz.replace(" ", "");
         Matcher mid = Pattern.compile("IDESP[^0-9]{0,4}([0-9]{8}[A-Z])").matcher(compact);
         while (mid.find()) if (validIdentity(mid.group(1))) { r.dni = mid.group(1); break; }
-
         String[] names = mrzNames(mrz);
         if (!names[0].isEmpty()) r.surname = names[0];
         if (!names[1].isEmpty()) r.name = names[1];
-
         String compactDigits = compact.replace('<', ' ');
         Matcher dates = Pattern.compile("([0-9]{6})[0-9]([MF<])([0-9]{6})[0-9]").matcher(compactDigits);
         if (dates.find()) {
@@ -236,6 +224,5 @@ public final class DniOcrParser {
     }
 
     private static String mrzDate(String yyMMdd) { try { int yy=Integer.parseInt(yyMMdd.substring(0,2)); int y=yy<=30?2000+yy:1900+yy; return String.format(Locale.ROOT,"%02d/%02d/%04d",Integer.parseInt(yyMMdd.substring(4,6)),Integer.parseInt(yyMMdd.substring(2,4)),y); } catch(Exception e){return "";} }
-
     private static final class Candidate { final String value; final int score; Candidate(String v,int s){value=v;score=s;} }
 }
