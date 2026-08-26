@@ -79,7 +79,7 @@ public class MainActivityV2 extends FragmentActivity {
 
     private void editClient(JSONObject old){LinearLayout l=col();EditText n=input("Nombre y apellidos"),d=input("DNI/NIE"),b=input("Fecha nacimiento dd/MM/yyyy"),ph=input("Teléfono"),ad=input("Dirección"),em=input("Email");if(old!=null){n.setText(old.optString("holder",clientKey(old)));d.setText(old.optString("identityNumber",""));b.setText(old.optString("birthDate",""));ph.setText(old.optString("phone",""));ad.setText(old.optString("address",""));em.setText(old.optString("email",""));}for(EditText e:new EditText[]{n,d,b,ph,ad,em})l.addView(e,new LinearLayout.LayoutParams(-1,dp(52)));new AlertDialog.Builder(this).setTitle(old==null?"Nuevo cliente":"Editar cliente").setView(l).setNegativeButton("Cancelar",null).setPositiveButton("Guardar",(di,w)->{try{JSONObject x=old==null?new JSONObject():old;String full=n.getText().toString().trim();x.put("holder",full);x.put("name",full);x.put("surname","");x.put("identityNumber",d.getText().toString().trim().toUpperCase(Locale.ROOT));x.put("birthDate",b.getText().toString().trim());x.put("phone",ph.getText().toString().trim());x.put("address",ad.getText().toString().trim());x.put("email",em.getText().toString().trim());if(!x.has("policies"))x.put("policies",new JSONArray());upsertClient(x);clients();}catch(Exception e){Toast.makeText(this,"No se pudo guardar",Toast.LENGTH_LONG).show();}}).show();}
 
-    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){if(requestCode==POLICY_CAMERA_PERMISSION){if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)startPolicyPageCamera();else Toast.makeText(this,"Permiso de cámara denegado.",Toast.LENGTH_LONG).show();return;}super.onRequestPermissionsResult(requestCode,permissions,grantResults);if(requestCode==POLICY_CAMERA_PERMISSION){if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)startPolicyPageCamera();else Toast.makeText(this,"Permiso de cámara denegado.",Toast.LENGTH_LONG).show();}}
+
 
     private void startPolicyPageCamera(){
         try{
@@ -197,6 +197,7 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
+
     private void policies(){shell("Pólizas","Pólizas Ocaso guardadas");JSONArray a=clientsData();boolean any=false;for(int i=0;i<a.length();i++){JSONObject c=a.optJSONObject(i);if(c==null)continue;JSONArray ps=c.optJSONArray("policies");if(ps==null)continue;for(int j=0;j<ps.length();j++){JSONObject p=ps.optJSONObject(j);if(p==null)continue;any=true;Button b=btn("▣ "+p.optString("type","OCASO")+" · "+p.optString("number","—")+System.lineSeparator()+clientKey(c),false);b.setOnClickListener(v->policyDetail(p));body.addView(b,new LinearLayout.LayoutParams(-1,dp(72)));}}if(!any)body.addView(tv("No hay pólizas guardadas.",15,MUTED,false));Button scan=btn("📄 SUBIR PÓLIZA PDF",true);scan.setOnClickListener(v->choosePdf());body.addView(scan,new LinearLayout.LayoutParams(-1,dp(60)));Button cameraPolicy=btn("📷 FOTOGRAFIAR PÓLIZA · VARIAS PÁGINAS",true);cameraPolicy.setOnClickListener(v->{policyPageUris.clear();policyPageBitmaps.clear();policyCameraFlow=true;startPolicyPageCamera();});body.addView(cameraPolicy,new LinearLayout.LayoutParams(-1,dp(64)));}
 
     private void ocrPage(){shell("OCR","Primero revisa el documento; después procesa y acepta los datos");body.addView(tv("1 · DOCUMENTO",18,BLUE,true));body.addView(tv("El archivo NO se guarda todavía. Primero comprueba que es el documento correcto.",14,MUTED,false));LinearLayout preview=col();preview.setBackground(box(Color.WHITE,16));body.addView(preview);renderPreview(preview);
@@ -209,12 +210,17 @@ public class MainActivityV2 extends FragmentActivity {
     private void renderPreview(LinearLayout container){if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);container.addView(iv,new LinearLayout.LayoutParams(-1,dp(360)));container.addView(tv(documentKind==2?"Vista previa: primera página del PDF":"Vista previa: imagen original",14,GREEN,true));}else container.addView(tv("Aún no has seleccionado ningún documento.",15,MUTED,false));}
 
     private void takePhoto(){if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.CAMERA},CAMERA);return;}try{File f=new File(getExternalFilesDir("captures"),"scan_"+System.currentTimeMillis()+".jpg");f.getParentFile().mkdirs();cameraUri=FileProvider.getUriForFile(this,getPackageName()+".fileprovider",f);Intent i=new Intent(MediaStore.ACTION_IMAGE_CAPTURE);i.putExtra(MediaStore.EXTRA_OUTPUT,cameraUri);i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivityForResult(i,CAMERA);}catch(Exception e){Toast.makeText(this,"No se pudo abrir la cámara",Toast.LENGTH_LONG).show();}}
-    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){
-        super.onRequestPermissionsResult(request,permissions,results);
-        if(results.length==0||results[0]!=PackageManager.PERMISSION_GRANTED)return;
-        if(request==CAMERA)takePhoto();
-        else if(request==POLICY_CAMERA_PERMISSION)startPolicyPageCamera();
+
+    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){
+        super.onRequestPermissionsResult(requestCode,permissions,grantResults);
+        if(grantResults.length==0||grantResults[0]!=PackageManager.PERMISSION_GRANTED){
+            if(requestCode==POLICY_CAMERA_PERMISSION)Toast.makeText(this,"Permiso de cámara denegado.",Toast.LENGTH_LONG).show();
+            return;
+        }
+        if(requestCode==CAMERA)takePhoto();
+        else if(requestCode==POLICY_CAMERA_PERMISSION)startPolicyPageCamera();
     }
+
     private void chooseImage(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("image/*");i.addCategory(Intent.CATEGORY_OPENABLE);i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,IMAGE);}
     private void choosePdf(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("application/pdf");i.addCategory(Intent.CATEGORY_OPENABLE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,PDF);}
 
@@ -326,11 +332,13 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
+
     private void processCurrentDocument(){if(documentUri==null||documentKind==0){Toast.makeText(this,"Primero selecciona un documento.",Toast.LENGTH_LONG).show();return;}if(documentKind==2){PdfOcrHelper.process(this,documentUri,new PdfOcrHelper.Callback(){public void onSuccess(String text){runOnUiThread(()->showPolicyReview(OcasoPolicyParser.parse(text),text));}public void onError(Exception e){runOnUiThread(()->Toast.makeText(MainActivityV2.this,"PDF: "+e.getMessage(),Toast.LENGTH_LONG).show());}});}else processImage();}
     private void processImage(){
         if(currentBitmap==null){Toast.makeText(this,"Primero selecciona un JPEG válido.",Toast.LENGTH_LONG).show();return;}
         TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);r.process(InputImage.fromBitmap(currentBitmap,0)).addOnSuccessListener(t->{String text=t.getText()==null?"":t.getText();if(side==2)backText=text;else frontText=text;r.close();showIdentityReview(parseEssentialRobust(frontText+"\\n"+backText));}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR: "+e.getMessage(),Toast.LENGTH_LONG).show();});
     }
+
 
 
 
@@ -366,6 +374,7 @@ public class MainActivityV2 extends FragmentActivity {
             upsertClient(x);Toast.makeText(this,"Cliente guardado con sus documentos.",Toast.LENGTH_LONG).show();detail(x);
         }catch(Exception e){Toast.makeText(this,"No se pudo guardar: "+e.getMessage(),Toast.LENGTH_LONG).show();}
     }
+
 
 
 
@@ -480,6 +489,9 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
+
+
+
     private void savePolicy(String raw,JSONArray insured){
         try{
             String id=policyDniE.getText().toString().trim().toUpperCase(Locale.ROOT),number=policyNumberE.getText().toString().trim();
@@ -532,6 +544,10 @@ public class MainActivityV2 extends FragmentActivity {
         if(u.contains("AUTOMOVIL")||u.contains("AUTOMÓVIL")||u.contains("VEHICULO")||u.contains("VEHÍCULO"))return "Auto";
         return "Otros";
     }
+
+
+
+
 
 
 
