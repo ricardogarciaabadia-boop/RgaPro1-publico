@@ -1,23 +1,26 @@
 from pathlib import Path
+import re
 
 MAIN = Path('app/src/main/java/com/rgapro1/ocaso/MainActivityV2.java')
 s = MAIN.read_text(encoding='utf-8')
 
 
-def replace_method(src: str, signature: str, replacement: str) -> str:
-    start = src.find(signature)
-    if start < 0:
-        raise SystemExit(f'method not found: {signature}')
-    brace = src.find('{', start)
+def replace_method(src: str, pattern: str, replacement: str) -> str:
+    m = re.search(pattern, src)
+    if not m:
+        raise SystemExit(f'method not found: {pattern}')
+    start = m.start()
+    brace = src.find('{', m.end())
+    if brace < 0:
+        raise SystemExit(f'opening brace not found: {pattern}')
     depth = 0
     for i in range(brace, len(src)):
-        if src[i] == '{':
-            depth += 1
+        if src[i] == '{': depth += 1
         elif src[i] == '}':
             depth -= 1
             if depth == 0:
-                return src[:start] + replacement + src[i + 1:]
-    raise SystemExit(f'unbalanced method: {signature}')
+                return src[:start] + replacement + src[i+1:]
+    raise SystemExit(f'unbalanced method: {pattern}')
 
 
 replacement = r'''    private OcrData parsePolicyOcr(String raw,String kind){
@@ -85,6 +88,6 @@ replacement = r'''    private OcrData parsePolicyOcr(String raw,String kind){
         return "";
     }
 '''
-s = replace_method(s, '    private OcrData parsePolicyOcr(String raw,String kind){', replacement)
+s = replace_method(s, r'private\s+OcrData\s+parsePolicyOcr\s*\(\s*String\s+raw\s*,\s*String\s+kind\s*\)', replacement)
 MAIN.write_text(s, encoding='utf-8')
 print('Policy OCR parser patched')
