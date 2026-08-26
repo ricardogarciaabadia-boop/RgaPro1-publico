@@ -2,9 +2,6 @@ package com.rgapro1.ocaso;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
-
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -17,17 +14,17 @@ public final class OcasoPolicyParser {
         JSONObject out = new JSONObject();
         try {
             String text = normalize(raw);
-            out.put("company", contains(text, "OCASO") ? "OCASO" : "");
-            out.put("number", first(text, "(?:N[ÚU]MERO\s*(?:DE\s*)?P[ÓO]LIZA|N[º°]?\s*P[ÓO]LIZA|P[ÓO]LIZA)\s*[:#-]?\s*([0-9]{5,12})"));
+            out.put("company", text.contains("OCASO") ? "OCASO" : "");
+            out.put("number", first(text, "(?:N[ÚU]MERO[ ]*(?:DE[ ]*)?P[ÓO]LIZA|N[º°]?[ ]*P[ÓO]LIZA|P[ÓO]LIZA)[ ]*[:#-]?[ ]*([0-9]{5,12})"));
             out.put("holder", valueAfterLabel(text, "TOMADOR", "TOMADOR/A", "CONTRATANTE"));
             out.put("identityNumber", firstIdNear(text, "TOMADOR", "DNI", "NIE", "DOCUMENTO"));
             out.put("address", valueAfterLabel(text, "DIRECCI[ÓO]N", "DOMICILIO"));
-            out.put("phone", first(text, "(?:TEL[ÉE]FONO|M[ÓO]VIL|TEL)\s*[:#-]?\s*([0-9]{9})"));
-            out.put("email", first(text, "(?:EMAIL|CORREO ELECTR[ÓO]NICO)\s*[:#-]?\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})"));
-            out.put("receipt", moneyNear(text, "(?:TOTAL\s+DEL\s+RECIBO|TOTAL\s+RECIBO|RECIBO|PRIMA)"));
-            out.put("capital", moneyNear(text, "(?:CAPITAL\s+ASEGURADO|CAPITAL)"));
-            out.put("decesos", moneyNear(text, "(?:TOTAL\s+DECESOS|DECESOS)"));
-            out.put("decesosLevelada", moneyNear(text, "DECESOS\s+NIVELADA"));
+            out.put("phone", first(text, "(?:TEL[ÉE]FONO|M[ÓO]VIL|TEL)[ ]*[:#-]?[ ]*([0-9]{9})"));
+            out.put("email", first(text, "(?:EMAIL|CORREO ELECTR[ÓO]NICO)[ ]*[:#-]?[ ]*([A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,})"));
+            out.put("receipt", moneyNear(text, "(?:TOTAL[ ]+DEL[ ]+RECIBO|TOTAL[ ]+RECIBO|RECIBO|PRIMA)"));
+            out.put("capital", moneyNear(text, "(?:CAPITAL[ ]+ASEGURADO|CAPITAL)"));
+            out.put("decesos", moneyNear(text, "(?:TOTAL[ ]+DECESOS|DECESOS)"));
+            out.put("decesosLevelada", moneyNear(text, "DECESOS[ ]+NIVELADA"));
             out.put("insured", insured(text));
         } catch (Exception ignored) {}
         return out;
@@ -52,17 +49,9 @@ public final class OcasoPolicyParser {
                 bm = date.matcher(lines[i+1]);
                 if (bm.find()) birth = bm.group(1)+"/"+bm.group(2)+"/"+bm.group(3);
             }
-            add(result, name, id, birth);
+            try { JSONObject x = new JSONObject(); x.put("name", clean(name)); x.put("identityNumber", id); x.put("birthDate", birth); result.put(x); } catch (Exception ignored) {}
         }
         return result;
-    }
-
-    private static void add(JSONArray a, String name, String id, String birth) {
-        try {
-            JSONObject x = new JSONObject();
-            x.put("name", clean(name)); x.put("identityNumber", id); x.put("birthDate", birth);
-            a.put(x);
-        } catch (Exception ignored) {}
     }
 
     private static String firstIdNear(String text, String... labels) {
@@ -73,35 +62,35 @@ public final class OcasoPolicyParser {
             Matcher m = Pattern.compile("(?<![A-Z0-9])(?:[0-9]{8}[A-Z]|[XYZ][0-9]{7}[A-Z])(?![A-Z0-9])").matcher(text.substring(p, end));
             if (m.find()) return m.group();
         }
-        return first(text, "(?<![A-Z0-9])(?:[0-9]{8}[A-Z]|[XYZ][0-9]{7}[A-Z])(?![A-Z0-9])");
+        Matcher m = Pattern.compile("(?<![A-Z0-9])(?:[0-9]{8}[A-Z]|[XYZ][0-9]{7}[A-Z])(?![A-Z0-9])").matcher(text);
+        return m.find() ? m.group() : "";
     }
 
     private static String valueAfterLabel(String text, String... labels) {
-        for (String label : labels) {
-            Matcher m = Pattern.compile(label + "\\s*[:#-]?\\s*([^\\n]{2,100})").matcher(text);
-            if (m.find()) return clean(m.group(1));
+        String[] lines = text.split("\\n");
+        for (int i=0;i<lines.length;i++) {
+            String line=lines[i].trim();
+            for(String label:labels) {
+                Matcher m=Pattern.compile(label+"[ ]*[:#-]?[ ]*(.*)").matcher(line);
+                if(m.find() && !m.group(1).trim().isEmpty()) return clean(m.group(1));
+                if(line.equals(label) && i+1<lines.length) return clean(lines[i+1]);
+            }
         }
         return "";
     }
 
     private static String moneyNear(String text, String label) {
-        Matcher m = Pattern.compile(label + "[^\\n]{0,80}?([0-9]{1,8}(?:[.,][0-9]{1,2})?)\\s*(?:€|EUR)?", Pattern.CASE_INSENSITIVE).matcher(text);
-        if (m.find()) return normalizeMoney(m.group(1));
+        String[] lines=text.split("\\n");
+        for(String line:lines) {
+            if(!Pattern.compile(label,Pattern.CASE_INSENSITIVE).matcher(line).find()) continue;
+            Matcher m=Pattern.compile("([0-9]{1,8}(?:[.,][0-9]{1,2})?)[ ]*(?:€|EUR)?",Pattern.CASE_INSENSITIVE).matcher(line);
+            if(m.find()) return normalizeMoney(m.group(1));
+        }
         return "";
     }
 
-    private static String first(String text, String regex) {
-        Matcher m = Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(text);
-        return m.find() ? clean(m.group(1)) : "";
-    }
-
-    private static boolean contains(String text, String s) { return text.contains(s); }
-
-    private static String normalize(String raw) {
-        return raw == null ? "" : raw.toUpperCase(Locale.ROOT)
-                .replace('\r','\n').replaceAll("\\n+", "\\n").replaceAll("[ \\t]+", " ");
-    }
-
-    private static String clean(String s) { return s == null ? "" : s.trim().replaceAll("\\s+", " "); }
-    private static String normalizeMoney(String s) { return clean(s).replace(',', '.'); }
+    private static String first(String text, String regex) { Matcher m=Pattern.compile(regex,Pattern.CASE_INSENSITIVE).matcher(text); return m.find()?clean(m.group(1)):""; }
+    private static String normalize(String raw) { return raw==null?"":raw.toUpperCase(Locale.ROOT).replace('\r','\n').replaceAll("\\n+","\\n").replaceAll("[ \\t]+"," "); }
+    private static String clean(String s) { return s==null?"":s.trim().replaceAll("\\s+"," "); }
+    private static String normalizeMoney(String s) { return clean(s).replace(',','.'); }
 }
