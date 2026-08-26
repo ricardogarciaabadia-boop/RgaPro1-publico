@@ -19,6 +19,9 @@ jobs:
       - name: Apply two-sided DNI JPEG OCR workflow
         run: python3 Scripts/patch_dni_two_sides.py
 
+      - name: Apply robust DNI OCR accuracy patch
+        run: python3 Scripts/fix_dni_ocr_accuracy.py
+
       - name: Normalize Java source
         run: python3 Scripts/normalize_build_sources.py
 
