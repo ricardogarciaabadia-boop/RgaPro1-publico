@@ -16,15 +16,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Force valid OCR patch escape
-        run: python3 Scripts/force_ocr_patch_java_escape.py
-
-      - name: Normalize OCR patch script
-        run: python3 Scripts/fix_ocr_patch_script_escape.py
-
-      - name: Apply reliable front DNI OCR patch
-        run: python3 Scripts/patch_ocr_front_reliable.py
-
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
