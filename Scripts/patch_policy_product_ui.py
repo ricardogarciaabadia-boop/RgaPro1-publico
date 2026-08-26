@@ -27,6 +27,13 @@ review = r'''    private void showPolicyReview(JSONObject p,String raw){
 
         String product=p.optString("policyType",p.optString("type","Otros"));
         boolean decesos="Decesos".equalsIgnoreCase(product);
+        int confidence=p.optInt("confidence",0);
+        body.addView(tv("Confianza de interpretación: "+confidence+"%",14,confidence>=85?GREEN:(confidence>=60?TEXT:Color.rgb(180,80,40)),true));
+        JSONArray warnings=p.optJSONArray("warnings");
+        if(warnings!=null&&warnings.length()>0){
+            body.addView(tv("REVISA ESTAS ALERTAS",13,Color.rgb(180,80,40),true));
+            for(int i=0;i<warnings.length();i++) body.addView(tv("⚠ "+warnings.optString(i,""),13,TEXT,false));
+        }
 
         policyNumberE=input("Número de póliza");
         holderE=input("Tomador (nombre y apellidos)");
@@ -114,19 +121,21 @@ save = r'''    private void savePolicy(String raw,JSONArray insured){
         try{
             String id=policyDniE.getText().toString().trim().toUpperCase(Locale.ROOT),number=policyNumberE.getText().toString().trim();
             if(number.isEmpty()){Toast.makeText(this,"El número de póliza es obligatorio.",Toast.LENGTH_LONG).show();return;}
+            if(!id.isEmpty()&&!isValidIdentity(id)){Toast.makeText(this,"DNI/NIE no válido. Revísalo antes de guardar.",Toast.LENGTH_LONG).show();return;}
+            JSONObject parsed=OcasoPolicyParser.parse(raw);
+            String product=parsed.optString("policyType",currentPolicyProduct(raw));
             JSONObject c=findClientById(id);if(c==null)c=findClientByName(holderE.getText().toString().trim());if(c==null)c=new JSONObject();
             c.put("holder",holderE.getText().toString().trim());c.put("name",holderE.getText().toString().trim());c.put("surname","");
             if(!id.isEmpty())c.put("identityNumber",id);c.put("address",policyAddressE.getText().toString().trim());c.put("phone",policyPhoneE.getText().toString().trim());c.put("email",policyEmailE.getText().toString().trim());
             JSONArray ps=c.optJSONArray("policies");if(ps==null)ps=new JSONArray();
             JSONObject pol=new JSONObject();
-            String product=currentPolicyProduct(raw);
             pol.put("type","OCASO");pol.put("policyType",product);pol.put("number",number);pol.put("holder",holderE.getText().toString().trim());pol.put("identityNumber",id);pol.put("address",policyAddressE.getText().toString().trim());pol.put("phone",policyPhoneE.getText().toString().trim());pol.put("email",policyEmailE.getText().toString().trim());pol.put("receipt",receiptE.getText().toString().trim());pol.put("capital",capitalE.getText().toString().trim());
             if("Decesos".equalsIgnoreCase(product)){
                 pol.put("decesos",decesosE.getText().toString().trim());pol.put("decesosLevelada",decesosLeveladaE.getText().toString().trim());
             }else{
                 pol.put("decesos","");pol.put("decesosLevelada","");
             }
-            pol.put("insured",insured==null?new JSONArray():insured);pol.put("documentUri",documentUri==null?"":documentUri.toString());pol.put("ocrText",raw);
+            pol.put("insured",insured==null?new JSONArray():insured);pol.put("documentUri",documentUri==null?"":documentUri.toString());pol.put("ocrText",raw);pol.put("ocrConfidence",parsed.optInt("confidence",0));pol.put("ocrWarnings",parsed.optJSONArray("warnings"));
             boolean replaced=false;for(int i=0;i<ps.length();i++){JSONObject old=ps.optJSONObject(i);if(old!=null&&number.equals(old.optString("number",""))){ps.put(i,pol);replaced=true;break;}}
             if(!replaced)ps.put(pol);c.put("policies",ps);upsertClient(c);Toast.makeText(this,"Póliza guardada y asociada al cliente.",Toast.LENGTH_LONG).show();detail(c);
         }catch(Exception e){Toast.makeText(this,"No se pudo guardar la póliza: "+e.getMessage(),Toast.LENGTH_LONG).show();}
@@ -146,4 +155,4 @@ save = r'''    private void savePolicy(String raw,JSONArray insured){
 s = replace_method(s, '    private void savePolicy(String raw,JSONArray insured){', save)
 
 MAIN.write_text(s, encoding='utf-8')
-print('Product-specific policy fields patched')
+print('Product-specific policy OCR UI hardened')
