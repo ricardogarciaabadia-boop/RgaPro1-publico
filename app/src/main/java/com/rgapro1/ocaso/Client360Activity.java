@@ -43,56 +43,61 @@ public class Client360Activity extends FragmentActivity {
         ScrollView sv=new ScrollView(this);LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(12),dp(12),dp(12),dp(20));
         body.addView(t("👤 "+client.optString("holder",client.optString("name","Cliente")),23,true));
         String id=client.optString("identityNumber",client.optString("holderDni","—"));
-        body.addView(t("Identificación: "+id+"\nTeléfono: "+client.optString("phone","—")+"\nEmail: "+client.optString("email","—")+"\nDirección: "+client.optString("address","—"),16,false));
-        addGroup(body,"📦 PRODUCTO / PÓLIZA",client);addGroup(body,"📄 DOCUMENTACIÓN",client);addGroup(body,"🔔 VENCIMIENTO / BAJA",client);
+        body.addView(t("DNI/NIE: "+id+"\nFecha de nacimiento: "+client.optString("birthDate","—")+"\nDirección: "+client.optString("address","—")+"\nTeléfono: "+client.optString("phone","—"),16,false));
+        addGroup(body,"📦 PÓLIZAS",client);addGroup(body,"📄 DOCUMENTACIÓN",client);
         sv.addView(body);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);
     }
 
+
     private void addGroup(LinearLayout body,String title,JSONObject p){
         body.addView(t(title,18,true));
-        Button product=btn((p.optString("type","Documento")+"  ·  "+p.optString("number","Sin número")+"\nVencimiento: "+p.optString("expiry",p.optString("validityDate","—"))));
-        product.setOnClickListener(v->showProduct(p));body.addView(product,new LinearLayout.LayoutParams(-1,dp(72)));
-        JSONArray docs=p.optJSONArray("documentPhotos");
-        if(docs!=null){for(int i=0;i<docs.length();i++){String path=documentPath(docs.opt(i));if(path.isEmpty())continue;Button d=btn("📄 "+new File(path).getName());d.setOnClickListener(v->documentMenu(path));body.addView(d,new LinearLayout.LayoutParams(-1,dp(58)));}}
+        if(title.contains("PÓLIZAS")){
+            JSONArray ps=p.optJSONArray("policies");
+            if(ps!=null) for(int i=0;i<ps.length();i++){
+                JSONObject pol=ps.optJSONObject(i);if(pol==null)continue;
+                Button product=btn("▣ Póliza · "+pol.optString("number","Sin número"));
+                product.setOnClickListener(v->showProduct(pol));body.addView(product,new LinearLayout.LayoutParams(-1,dp(60)));
+            }
+        }
+        if(title.contains("DOCUMENTACIÓN")){
+            JSONArray docs=p.optJSONArray("documentPhotos");
+            if(docs!=null) for(int i=0;i<docs.length();i++){
+                String path=documentPath(docs.opt(i));if(path.isEmpty())continue;
+                Button d=btn("📄 "+new File(path).getName());d.setOnClickListener(v->documentMenu(path));body.addView(d,new LinearLayout.LayoutParams(-1,dp(58)));
+            }
+        }
     }
+
 
     private String documentPath(Object item){if(item==null||item==JSONObject.NULL)return "";if(item instanceof JSONObject)return ((JSONObject)item).optString("path","");return String.valueOf(item);}
     private void showProduct(JSONObject p){new AlertDialog.Builder(this).setTitle("Producto / póliza").setMessage("Tipo: "+p.optString("type","—")+"\nNúmero: "+p.optString("number","—")+"\nTitular: "+p.optString("holder","—")+"\nVencimiento: "+p.optString("expiry",p.optString("validityDate","—"))).setPositiveButton("Cerrar",null).show();}
 
     private void editClient(){
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(8),0,dp(8),0);
-        EditText holder=field("Titular",client.optString("holder",""));
-        EditText name=field("Nombre",client.optString("name",""));
-        EditText surname=field("Apellidos",client.optString("surname",""));
+        EditText holder=field("Nombre y apellidos",client.optString("holder",client.optString("name","")));
         EditText identity=field("DNI / NIE",client.optString("identityNumber",client.optString("holderDni","")));
-        EditText cif=field("CIF",client.optString("cif",""));
-        EditText phone=field("Teléfono",client.optString("phone",""));
-        EditText email=field("Correo electrónico",client.optString("email",""));
-        EditText address=field("Dirección",client.optString("address",""));
         EditText birth=field("Fecha de nacimiento",client.optString("birthDate",""));
-        EditText type=field("Tipo",client.optString("type",""));
-        EditText number=field("Número de póliza / documento",client.optString("number",""));
-        EditText expiry=field("Vencimiento",client.optString("expiry",client.optString("validityDate","")));
-        EditText nationality=field("Nacionalidad",client.optString("nationality",""));
-        EditText sex=field("Sexo",client.optString("sex",""));
-        EditText birthPlace=field("Lugar de nacimiento",client.optString("birthPlace",""));
-        EditText[] fields=new EditText[]{holder,name,surname,identity,cif,phone,email,address,birth,type,number,expiry,nationality,sex,birthPlace};
+        EditText address=field("Dirección",client.optString("address",""));
+        EditText phone=field("Teléfono",client.optString("phone",""));
+        EditText[] fields=new EditText[]{holder,identity,birth,address,phone};
         for(EditText e:fields)form.addView(e,new LinearLayout.LayoutParams(-1,dp(54)));
-
         ScrollView scroll=new ScrollView(this);scroll.addView(form);
-        AlertDialog dialog=new AlertDialog.Builder(this)
-                .setTitle("Editar cliente")
-                .setView(scroll)
-                .setNegativeButton("Cancelar",null)
-                .setPositiveButton("Guardar",null)
-                .create();
-
-        dialog.setOnShowListener(ignored -> {
-            Button saveButton=dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-            saveButton.setOnClickListener(v -> saveEditedClient(dialog,holder,name,surname,identity,cif,phone,email,address,birth,type,number,expiry,nationality,sex,birthPlace));
-        });
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Editar cliente").setView(scroll).setNegativeButton("Cancelar",null).setPositiveButton("Guardar",null).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            try{
+                client.put("holder",holder.getText().toString().trim());
+                client.put("name",holder.getText().toString().trim());client.put("surname","");
+                client.put("identityNumber",identity.getText().toString().trim().toUpperCase(java.util.Locale.ROOT));
+                client.put("holderDni",identity.getText().toString().trim().toUpperCase(java.util.Locale.ROOT));
+                client.put("birthDate",birth.getText().toString().trim());client.put("address",address.getText().toString().trim());client.put("phone",phone.getText().toString().trim());
+                client.put("updatedAt",System.currentTimeMillis());
+                if(saveClient(client)){dialog.dismiss();show();Toast.makeText(this,"✅ Datos del cliente guardados",Toast.LENGTH_LONG).show();}
+                else Toast.makeText(this,"No se encontró el cliente original",Toast.LENGTH_LONG).show();
+            }catch(Exception e){Toast.makeText(this,"No se pudieron guardar los cambios",Toast.LENGTH_LONG).show();}
+        }));
         dialog.show();
     }
+
 
     private void saveEditedClient(AlertDialog dialog, EditText holder, EditText name, EditText surname,
                                   EditText identity, EditText cif, EditText phone, EditText email,
