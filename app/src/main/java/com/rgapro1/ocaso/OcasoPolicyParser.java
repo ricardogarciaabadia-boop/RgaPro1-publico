@@ -6,7 +6,7 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Extractor estructurado para pólizas Ocaso. No sustituye la revisión humana. */
+/** Extractor estructurado para pólizas Ocaso. Los campos de decesos solo existen para producto Decesos. */
 public final class OcasoPolicyParser {
     private OcasoPolicyParser() {}
 
@@ -14,7 +14,9 @@ public final class OcasoPolicyParser {
         JSONObject out = new JSONObject();
         try {
             String text = normalize(raw);
+            String product = classifyProduct(text);
             out.put("company", text.contains("OCASO") ? "OCASO" : "");
+            out.put("policyType", product);
             out.put("number", first(text, "(?:N[ÚU]MERO[ ]*(?:DE[ ]*)?P[ÓO]LIZA|N[º°]?[ ]*P[ÓO]LIZA|P[ÓO]LIZA)[ ]*[:#-]?[ ]*([0-9]{5,12})"));
             out.put("holder", valueAfterLabel(text, "TOMADOR", "TOMADOR/A", "CONTRATANTE"));
             out.put("identityNumber", firstIdNear(text, "TOMADOR", "DNI", "NIE", "DOCUMENTO"));
@@ -22,12 +24,35 @@ public final class OcasoPolicyParser {
             out.put("phone", first(text, "(?:TEL[ÉE]FONO|M[ÓO]VIL|TEL)[ ]*[:#-]?[ ]*([0-9]{9})"));
             out.put("email", first(text, "(?:EMAIL|CORREO ELECTR[ÓO]NICO)[ ]*[:#-]?[ ]*([A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,})"));
             out.put("receipt", moneyNear(text, "(?:TOTAL[ ]+DEL[ ]+RECIBO|TOTAL[ ]+RECIBO|RECIBO|PRIMA)"));
-            out.put("capital", moneyNear(text, "(?:CAPITAL[ ]+ASEGURADO|CAPITAL)"));
-            out.put("decesos", moneyNear(text, "(?:TOTAL[ ]+DECESOS|DECESOS)"));
-            out.put("decesosLevelada", moneyNear(text, "DECESOS[ ]+NIVELADA"));
+            out.put("capital", moneyNear(text, "(?:CAPITAL[ ]+ASEGURADO|CAPITAL[ ]+PRINCIPAL|SUMA[ ]+ASEGURADA|CAPITAL)"));
+            if (isDecesos(product)) {
+                out.put("decesos", moneyNear(text, "TOTAL[ ]+DECESOS"));
+                out.put("decesosLevelada", moneyNear(text, "DECESOS[ ]+NIVELADA"));
+            } else {
+                out.put("decesos", "");
+                out.put("decesosLevelada", "");
+            }
             out.put("insured", insured(text));
         } catch (Exception ignored) {}
         return out;
+    }
+
+    private static String classifyProduct(String text) {
+        if (text.contains("DECESOS") || text.contains("ASISTENCIA FAMILIAR")) return "Decesos";
+        if (text.contains("VIDA") || text.contains("FALLECIMIENTO")) return "Vida";
+        if (text.contains("ACCIDENTE")) return "Accidentes";
+        if (text.contains("HOGAR") || text.contains("MULTIRRIESGO HOGAR")) return "Hogar";
+        if (text.contains("SALUD") || text.contains("ASISTENCIA SANITARIA")) return "Salud";
+        if (text.contains("AUTOMOVIL") || text.contains("AUTOMÓVIL") || text.contains("VEHICULO") || text.contains("VEHÍCULO")) return "Auto";
+        if (text.contains("AHORRO") || text.contains("PIAS") || text.contains("RENTA")) return "Ahorro";
+        if (text.contains("COMUNIDAD") || text.contains("COMUNIDADES")) return "Comunidades";
+        if (text.contains("RESPONSABILIDAD CIVIL")) return "Responsabilidad civil";
+        if (text.contains("EMPRESA") || text.contains("PYME") || text.contains("COMERCIO")) return "Empresa";
+        return "Otros";
+    }
+
+    private static boolean isDecesos(String product) {
+        return "Decesos".equalsIgnoreCase(product);
     }
 
     private static JSONArray insured(String text) {
@@ -83,7 +108,7 @@ public final class OcasoPolicyParser {
         String[] lines=text.split("\\n");
         for(String line:lines) {
             if(!Pattern.compile(label,Pattern.CASE_INSENSITIVE).matcher(line).find()) continue;
-            Matcher m=Pattern.compile("([0-9]{1,8}(?:[.,][0-9]{1,2})?)[ ]*(?:€|EUR)?",Pattern.CASE_INSENSITIVE).matcher(line);
+            Matcher m=Pattern.compile("(?<![0-9])([0-9]{1,8}(?:[.,][0-9]{1,2})?)[ ]*(?:€|EUR)?",Pattern.CASE_INSENSITIVE).matcher(line);
             if(m.find()) return normalizeMoney(m.group(1));
         }
         return "";
