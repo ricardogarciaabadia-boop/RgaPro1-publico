@@ -10,8 +10,8 @@ android {
         applicationId 'com.rgapro1.ocaso'
         minSdk 23
         targetSdk 35
-        versionCode 7
-        versionName '1.6'
+        versionCode 8
+        versionName '1.7'
     }
 
     packagingOptions {
@@ -36,3 +36,42 @@ configurations.configureEach {
     exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
     exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
 }
+
+// El archivo principal es histórico y contiene el flujo OCR anterior.
+// Lo actualizamos automáticamente en cada build para que todas las APK
+// generadas usen el nuevo pipeline sin duplicar MainActivityV2 completo.
+def patchDniOcr = tasks.register('patchDniOcr') {
+    doLast {
+        File target = file('src/main/java/com/rgapro1/ocaso/MainActivityV2.java')
+        String source = target.getText('UTF-8')
+        String marker = 'DniOcrEngine.process(frontBitmap,backBitmap'
+        if (source.contains(marker)) return
+
+        String oldMethod = '''    private void processDniPairOcr(){
+        TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS); if(frontBitmap==null||backBitmap==null){r.close();return;}
+        r.process(InputImage.fromBitmap(frontBitmap,0)).addOnSuccessListener(f->{frontText=f==null?"":f.getText();r.process(InputImage.fromBitmap(backBitmap,0)).addOnSuccessListener(b->{backText=b==null?"":b.getText();currentBitmap=frontBitmap;previewBitmap=frontBitmap;currentImagePath=frontImagePath;r.close();showIdentityReview(parseEssentialRobust(frontText+"\\n"+backText));}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR reverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR anverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});
+    }'''
+        String newMethod = '''    private void processDniPairOcr(){
+        if(frontBitmap==null||backBitmap==null)return;
+        DniOcrEngine.process(frontBitmap,backBitmap,new DniOcrEngine.Callback(){
+            @Override public void onSuccess(String front,String back,Bitmap preparedFront,Bitmap preparedBack){
+                frontText=front==null?"":front;
+                backText=back==null?"":back;
+                frontBitmap=preparedFront;
+                backBitmap=preparedBack;
+                currentBitmap=preparedFront;
+                previewBitmap=preparedFront;
+                currentImagePath=frontImagePath;
+                showIdentityReview(parseEssentialRobust(frontText+"\\n"+backText));
+            }
+            @Override public void onFailure(Exception e){
+                Toast.makeText(MainActivityV2.this,"OCR: "+(e==null?"error":e.getMessage()),Toast.LENGTH_LONG).show();
+            }
+        });
+    }'''
+        if (!source.contains(oldMethod)) throw new GradleException('No se encontró processDniPairOcr; se evita una compilación con OCR antiguo/incierto.')
+        target.write(source.replace(oldMethod, newMethod), 'UTF-8')
+    }
+}
+
+preBuild.dependsOn(patchDniOcr)
