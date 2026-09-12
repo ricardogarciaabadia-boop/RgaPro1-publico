@@ -107,6 +107,7 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
+
     private void openDocument(String path){
         try{
             File f=new File(path); if(!f.exists()){Toast.makeText(this,"No se encuentra el documento",Toast.LENGTH_LONG).show();return;}
@@ -146,6 +147,7 @@ public class MainActivityV2 extends FragmentActivity {
                 }catch(Exception e){Toast.makeText(this,"No se pudo guardar",Toast.LENGTH_LONG).show();}
             }).show();
     }
+
 
 
 
@@ -241,8 +243,6 @@ public class MainActivityV2 extends FragmentActivity {
         addRead(l,"Dirección",p.optString("address",""));
         addRead(l,"Teléfono",p.optString("phone",""));
         addRead(l,"Email",p.optString("email",""));
-        addRead(l,"Fecha de efecto",p.optString("effectiveDate",""));
-        addRead(l,"Fecha de vencimiento",p.optString("expiryDate",""));
         addRead(l,"Precio / recibo",p.optString("receipt",""));
         String localDoc=p.optString("localDocumentPath","");
         if(!localDoc.isEmpty()){Button open=btn("📎 ABRIR DOCUMENTO ORIGINAL",true);open.setOnClickListener(v->openArchivedDocument(localDoc,"pdf"));l.addView(open,new LinearLayout.LayoutParams(-1,dp(58)));}
@@ -281,6 +281,7 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
+
     private void policies(){shell("Pólizas","Pólizas Ocaso guardadas");JSONArray a=clientsData();boolean any=false;for(int i=0;i<a.length();i++){JSONObject c=a.optJSONObject(i);if(c==null)continue;JSONArray ps=c.optJSONArray("policies");if(ps==null)continue;for(int j=0;j<ps.length();j++){JSONObject p=ps.optJSONObject(j);if(p==null)continue;any=true;Button b=btn("▣ "+p.optString("type","OCASO")+" · "+p.optString("number","—")+System.lineSeparator()+clientKey(c),false);b.setOnClickListener(v->policyDetail(p));body.addView(b,new LinearLayout.LayoutParams(-1,dp(72)));}}if(!any)body.addView(tv("No hay pólizas guardadas.",15,MUTED,false));Button scan=btn("📄 SUBIR PÓLIZA PDF",true);scan.setOnClickListener(v->choosePdf());body.addView(scan,new LinearLayout.LayoutParams(-1,dp(60)));Button cameraPolicy=btn("📷 FOTOGRAFIAR PÓLIZA · VARIAS PÁGINAS",true);cameraPolicy.setOnClickListener(v->{policyPageUris.clear();policyPageBitmaps.clear();policyCameraFlow=true;startPolicyPageCamera();});body.addView(cameraPolicy,new LinearLayout.LayoutParams(-1,dp(64)));}
 
     private void ocrPage(){shell("OCR","Primero revisa el documento; después procesa y acepta los datos");body.addView(tv("1 · DOCUMENTO",18,BLUE,true));body.addView(tv("El archivo NO se guarda todavía. Primero comprueba que es el documento correcto.",14,MUTED,false));LinearLayout preview=col();preview.setBackground(box(Color.WHITE,16));body.addView(preview);renderPreview(preview);
@@ -293,6 +294,8 @@ public class MainActivityV2 extends FragmentActivity {
     private void renderPreview(LinearLayout container){if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);container.addView(iv,new LinearLayout.LayoutParams(-1,dp(360)));container.addView(tv(documentKind==2?"Vista previa: primera página del PDF":"Vista previa: imagen original",14,GREEN,true));}else container.addView(tv("Aún no has seleccionado ningún documento.",15,MUTED,false));}
 
     private void takePhoto(){if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.CAMERA},CAMERA);return;}try{File f=new File(getExternalFilesDir("captures"),"scan_"+System.currentTimeMillis()+".jpg");f.getParentFile().mkdirs();cameraUri=FileProvider.getUriForFile(this,getPackageName()+".fileprovider",f);Intent i=new Intent(MediaStore.ACTION_IMAGE_CAPTURE);i.putExtra(MediaStore.EXTRA_OUTPUT,cameraUri);i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivityForResult(i,CAMERA);}catch(Exception e){Toast.makeText(this,"No se pudo abrir la cámara",Toast.LENGTH_LONG).show();}}
+
+
 
 
 
@@ -437,11 +440,13 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
+
     private void processCurrentDocument(){if(documentUri==null||documentKind==0){Toast.makeText(this,"Primero selecciona un documento.",Toast.LENGTH_LONG).show();return;}if(documentKind==2){PdfOcrHelper.process(this,documentUri,new PdfOcrHelper.Callback(){public void onSuccess(String text){runOnUiThread(()->showPolicyReview(OcasoPolicyParser.parse(text),text));}public void onError(Exception e){runOnUiThread(()->Toast.makeText(MainActivityV2.this,"PDF: "+e.getMessage(),Toast.LENGTH_LONG).show());}});}else processImage();}
     private void processImage(){
         if(currentBitmap==null){Toast.makeText(this,"Primero selecciona un JPEG válido.",Toast.LENGTH_LONG).show();return;}
         TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);r.process(InputImage.fromBitmap(currentBitmap,0)).addOnSuccessListener(t->{String text=t.getText()==null?"":t.getText();if(side==2)backText=text;else frontText=text;r.close();showIdentityReview(parseEssentialRobust(frontText+"\\n"+backText));}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR: "+e.getMessage(),Toast.LENGTH_LONG).show();});
     }
+
 
 
 
@@ -498,6 +503,7 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
+
     private void showPolicyReview(JSONObject p,String raw){
         shell("Revisión de póliza","Comprueba los datos del tomador antes de guardar");
         body.addView(tv("DATOS DEL CLIENTE",18,BLUE,true));
@@ -511,8 +517,6 @@ public class MainActivityV2 extends FragmentActivity {
         policyAddressE=input("Dirección");
         policyPhoneE=input("Teléfono");
         policyEmailE=input("Email");
-        policyEffectiveE=input("Fecha de efecto");
-        policyExpiryE=input("Fecha de vencimiento");
         receiptE=input("Precio / total recibo");
         capitalE=input("Capital");
         decesosE=input("Total decesos");
@@ -529,6 +533,7 @@ public class MainActivityV2 extends FragmentActivity {
         decesosE.setText(p.optString("decesos",""));
         decesosLeveladaE.setText(p.optString("decesosLevelada",""));
 
+        addPolicyField("NÚMERO DE PÓLIZA",null,policyNumberE);
         addPolicyField("NOMBRE Y APELLIDOS",null,holderE);
         addPolicyField("DNI / NIE",null,policyDniE);
         EditText birth=input("Fecha de nacimiento");
@@ -536,10 +541,6 @@ public class MainActivityV2 extends FragmentActivity {
         addPolicyField("FECHA DE NACIMIENTO",null,birth);
         addPolicyField("DIRECCIÓN",null,policyAddressE);
         addPolicyField("TELÉFONO",null,policyPhoneE);
-        addPolicyField("EMAIL",null,policyEmailE);
-        addPolicyField("FECHA DE EFECTO",null,policyEffectiveE);
-        addPolicyField("FECHA DE VENCIMIENTO",null,policyExpiryE);
-        addPolicyField("NÚMERO DE PÓLIZA",null,policyNumberE);
 
         Button accept=btn("✅ ACEPTAR DATOS Y ARCHIVAR PÓLIZA",true),reject=btn("❌ RECHAZAR / VOLVER",false);
         body.addView(accept,new LinearLayout.LayoutParams(-1,dp(64))); body.addView(reject,new LinearLayout.LayoutParams(-1,dp(58)));
@@ -553,6 +554,10 @@ public class MainActivityV2 extends FragmentActivity {
         if(field!=null) body.addView(field,new LinearLayout.LayoutParams(-1,dp(54)));
         else body.addView(tv(value==null?"":value,16,TEXT,false),new LinearLayout.LayoutParams(-1,dp(54)));
     }
+
+
+
+
 
 
 
@@ -653,9 +658,7 @@ public class MainActivityV2 extends FragmentActivity {
             if(!id.isEmpty())c.put("identityNumber",id); if(!address.isEmpty())c.put("address",address); if(!phone.isEmpty())c.put("phone",phone); if(!email.isEmpty())c.put("email",email);
             JSONArray ps=c.optJSONArray("policies");if(ps==null)ps=new JSONArray();
             JSONObject pol=new JSONObject();
-            pol.put("type","OCASO");pol.put("policyType",product);pol.put("number",number);
-            pol.put("effectiveDate",policyEffectiveE.getText().toString().trim());
-            pol.put("expiryDate",policyExpiryE.getText().toString().trim());pol.put("holder",holder);pol.put("identityNumber",id);pol.put("address",address);pol.put("phone",phone);pol.put("email",email);pol.put("receipt",receiptE.getText().toString().trim());pol.put("capital",capitalE.getText().toString().trim());
+            pol.put("type","OCASO");pol.put("policyType",product);pol.put("number",number);pol.put("holder",holder);pol.put("identityNumber",id);pol.put("address",address);pol.put("phone",phone);pol.put("email",email);pol.put("receipt",receiptE.getText().toString().trim());pol.put("capital",capitalE.getText().toString().trim());
             if("Decesos".equalsIgnoreCase(product)){pol.put("decesos",decesosE.getText().toString().trim());pol.put("decesosLevelada",decesosLeveladaE.getText().toString().trim());}else{pol.put("decesos","");pol.put("decesosLevelada","");}
             pol.put("insured",insured==null?new JSONArray():insured);pol.put("documentUri",documentUri==null?"":documentUri.toString());pol.put("ocrText",raw);pol.put("ocrConfidence",parsed.optInt("confidence",0));pol.put("ocrWarnings",parsed.optJSONArray("warnings"));
             String localPdf="";
@@ -686,6 +689,10 @@ public class MainActivityV2 extends FragmentActivity {
         if(u.contains("AUTOMOVIL")||u.contains("AUTOMÓVIL")||u.contains("VEHICULO")||u.contains("VEHÍCULO"))return "Auto";
         return "Otros";
     }
+
+
+
+
 
 
 
