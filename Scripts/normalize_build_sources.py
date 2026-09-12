@@ -1,5 +1,9 @@
 from pathlib import Path
 
+# Document image quality is part of the common build normalization: deskew is
+# applied before OCR patches consume the shared preprocessor.
+exec(Path("Scripts/patch_document_deskew.py").read_text(encoding="utf-8"),{"__name__":"__build_patch__"})
+
 MAIN = Path("app/src/main/java/com/rgapro1/ocaso/MainActivityV2.java")
 text = MAIN.read_text(encoding="utf-8")
 
@@ -63,4 +67,4 @@ MAIN.write_text(fixed,encoding='utf-8')
 exec(Path("Scripts/patch_client_policy_list_ui.py").read_text(encoding="utf-8"),{"__name__":"__build_patch__"})
 exec(Path("Scripts/patch_policy_list_clean.py").read_text(encoding="utf-8"),{"__name__":"__build_patch__"})
 exec(Path("Scripts/patch_unified_file_ingest.py").read_text(encoding="utf-8"),{"__name__":"__build_patch__"})
-print("Source normalization + unified automatic file ingestion + client association complete")
+print("Source normalization + deskew + unified automatic file ingestion + client association complete")
