@@ -57,6 +57,7 @@ public class Client360Activity extends FragmentActivity {
 
 
 
+
     private void addGroup(LinearLayout body,String title,JSONObject p){
         body.addView(t(title,18,true));
         if(title.contains("PÓLIZAS")){
@@ -75,6 +76,7 @@ public class Client360Activity extends FragmentActivity {
             }
         }
     }
+
 
 
 
@@ -113,6 +115,7 @@ public class Client360Activity extends FragmentActivity {
         }));
         dialog.show();
     }
+
 
 
 

@@ -115,6 +115,7 @@ public final class OcasoPolicyParser {
     }
 
 
+
     private static String extractAddress(String[] lines){
         int[] b=sectionBounds(lines,new String[]{"DATOS DEL TOMADOR Y DOMICILIO","TOMADOR DEL SEGURO Y DOMICILIO","TOMADOR DEL SEGURO"},new String[]{"RIESGO/S ASEGURADO/S","RIESGOS ASEGURADOS","DURACION DEL CONTRATO","DURACIÓN DEL CONTRATO"});
         if(b[0]<0)return "";
@@ -137,6 +138,7 @@ public final class OcasoPolicyParser {
     }
 
 
+
     private static String extractIdentity(String text,String[] lines){
         ArrayList<Candidate> candidates=new ArrayList<>();
         int[] b=sectionBounds(lines,new String[]{"DATOS DEL TOMADOR Y DOMICILIO","TOMADOR DEL SEGURO Y DOMICILIO","TOMADOR DEL SEGURO"},new String[]{"RIESGO/S ASEGURADO/S","RIESGOS ASEGURADOS","DURACION DEL CONTRATO","DURACIÓN DEL CONTRATO"});
@@ -145,6 +147,7 @@ public final class OcasoPolicyParser {
         for(Candidate c:candidates)if(isValidIdentity(c.value))return c.value;
         return "";
     }
+
 
 
     private static void addIdentityCandidates(ArrayList<Candidate> out,String source,int lineIndex,String... labels){
@@ -169,6 +172,7 @@ public final class OcasoPolicyParser {
         }
         return "";
     }
+
 
     private static String extractEmail(String text,String[] lines){
         int[] b=sectionBounds(lines,new String[]{"DATOS DEL TOMADOR Y DOMICILIO","TOMADOR DEL SEGURO Y DOMICILIO","TOMADOR DEL SEGURO"},new String[]{"RIESGO/S ASEGURADO/S","RIESGOS ASEGURADOS","DURACION DEL CONTRATO","DURACIÓN DEL CONTRATO"});
@@ -212,6 +216,22 @@ public final class OcasoPolicyParser {
     private static int indexOfAny(String s,String[] markers){for(String m:markers){int p=s.indexOf(m);if(p>=0)return p;}return -1;}
     private static boolean isCompanyOrOffice(String s){String u=clean(s).toUpperCase(Locale.ROOT);return u.contains("OCASO")||u.contains("COMPAÑIA DE SEGUROS")||u.contains("SOCIEDAD ANONIMA")||u.contains("SOCIAL:")||u.contains("SUCURSAL")||u.contains("AGENTE DE SEGUROS");}
     private static boolean isOcasoAddress(String s){String u=clean(s).toUpperCase(Locale.ROOT);return u.contains("CALLE DE LA PRINCESA")||u.contains("Pº DE LA CASTELLANA")||u.contains("PASEO DE LA CASTELLANA")||u.contains("LAS ROZAS DE MADRID")||u.contains("SEVERO OCHOA");}
+
+    private static boolean isRealPersonName(String s){
+        if(s==null)return false;String u=clean(s).toUpperCase(Locale.ROOT);
+        if(u.length()<5||u.length()>100||u.matches(".*\\d{2,}.*"))return false;
+        if(isCompanyOrOffice(u)||u.contains("POR CUENTA")||u.contains("CONCEPTO")||u.contains("MEDIO DE CONTACTO")||u.contains("MEDIOS DE CONTACTO")||u.contains("DIRECCION")||u.contains("DIRECCIÓN")||u.contains("DOMICILIO")||u.contains("LEIDO Y CONFORME")||u.contains("DIRECTOR GENERAL")||u.contains("SEGUROS Y REASEGUROS"))return false;
+        String[] w=u.split(" ");return w.length>=2;
+    }
+    private static boolean isOcasoAddressStrict(String s){
+        String u=clean(s).toUpperCase(Locale.ROOT);
+        return isOcasoAddress(u)||u.contains("PRINCESA")||u.contains("28008")||u.contains("915380")||u.contains("915 380")||u.contains("OCASO.ES")||u.contains("DOMICILIO SOCIAL")||u.contains("OCASO, S.A")||u.contains("OCASO S.A");
+    }
+    private static boolean isNonClientAddress(String s){
+        String u=clean(s).toUpperCase(Locale.ROOT);
+        return u.contains("DOMICILIO DE COBRO")||u.contains("DOMICILIO DE")||u.contains("CUENTA ES")||u.contains("BANCO ")||u.contains("CAIXABANK")||u.contains("SANTANDER")||u.contains("CAJA R.");
+    }
+    private static boolean isOcasoPhone(String s){return "915380100".equals(s)||"915380469".equals(s);}
 
     private static boolean isRealPersonName(String s){
         if(s==null)return false;String u=clean(s).toUpperCase(Locale.ROOT);
