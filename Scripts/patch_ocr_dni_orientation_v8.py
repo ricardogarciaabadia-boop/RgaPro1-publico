@@ -41,18 +41,17 @@ helpers=r'''    private Bitmap autoCropDocument(Bitmap src){
         if(image==null){done.run();return;}TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);Bitmap ocr=stabilizeOcrBitmap(image);r.process(InputImage.fromBitmap(ocr,0)).addOnSuccessListener(result->{if(front)frontText=result==null?"":result.getText();else backText=result==null?"":result.getText();r.close();if(ocr!=image)ocr.recycle();done.run();}).addOnFailureListener(e->{r.close();if(ocr!=image)ocr.recycle();done.run();});
     }
 '''
-if 'private Bitmap autoCropDocument' not in s:
-    s=s.replace('    private void reviewDniPair(){',helpers+'\n    private void reviewDniPair(){',1)
+if 'private Bitmap autoCropDocument' not in s:s=s.replace('    private void reviewDniPair(){',helpers+'\n    private void reviewDniPair(){',1)
 
 pair=r'''    private void processDniPairOcr(){
         if(frontBitmap==null||backBitmap==null)return;
         Toast.makeText(this,"Detectando anverso/reverso, girando y recortando…",Toast.LENGTH_SHORT).show();
         classifyDniImage(frontBitmap,0,"",-1,0,(aText,aDeg)->{
             classifyDniImage(backBitmap,0,"",-1,0,(bText,bDeg)->{
-                int af=dniFrontScoreStrong(aText),ab=dniBackScoreStrong(aText),bf=dniFrontScoreStrong(bText),bb=dniBackScoreStrong(bText);
-                boolean swap=(ab+bf)>(af+bb);
+                final String a=aText,b=bText; final int af=dniFrontScoreStrong(a),ab=dniBackScoreStrong(a),bf=dniFrontScoreStrong(b),bb=dniBackScoreStrong(b);
+                final boolean swap=(ab+bf)>(af+bb);
                 Bitmap au=uprightAndCropDni(frontBitmap,aDeg),bu=uprightAndCropDni(backBitmap,bDeg);
-                if(swap){String t=aText;aText=bText;bText=t;Bitmap bm=au;au=bu;bu=bm;Bitmap ob=frontBitmap;frontBitmap=backBitmap;backBitmap=ob;String p=frontImagePath;frontImagePath=backImagePath;backImagePath=p;}
+                if(swap){Bitmap bm=au;au=bu;bu=bm;Bitmap ob=frontBitmap;frontBitmap=backBitmap;backBitmap=ob;String p=frontImagePath;frontImagePath=backImagePath;backImagePath=p;}
                 frontBitmap=au;backBitmap=bu;currentBitmap=frontBitmap;previewBitmap=frontBitmap;currentImagePath=frontImagePath;
                 reOcrDni(frontBitmap,true,()->reOcrDni(backBitmap,false,()->{
                     org.json.JSONObject data=parseEssentialRobust(frontText);String address=dniReverseAddress(backText);try{if(address.length()>0)data.put("address",address);}catch(Exception ignored){}showIdentityReview(data);
