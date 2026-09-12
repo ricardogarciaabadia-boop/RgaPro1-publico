@@ -34,9 +34,6 @@ jobs:
       - name: Apply essential client UI and policy archive rules
         run: python3 Scripts/patch_essential_client_view.py
 
-      - name: Fix policy OCR section scoping
-        run: python3 Scripts/fix_policy_section_scope.py
-
       - name: Fix policy review number field
         run: python3 Scripts/fix_policy_review_number.py
 
