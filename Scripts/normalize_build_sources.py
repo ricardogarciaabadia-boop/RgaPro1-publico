@@ -69,4 +69,6 @@ exec(Path("Scripts/patch_client_policy_list_ui.py").read_text(encoding="utf-8"),
 exec(Path("Scripts/patch_policy_list_clean.py").read_text(encoding="utf-8"),{"__name__":"__build_patch__"})
 exec(Path("Scripts/patch_unified_file_ingest.py").read_text(encoding="utf-8"),{"__name__":"__build_patch__"})
 exec(Path("Scripts/patch_final_capture_flow.py").read_text(encoding="utf-8"),{"__name__":"__build_patch__"})
-print("Source normalization + deskew + PDF deskew + universal image quality + unified automatic file ingestion + final capture/navigation flow + client association complete")
+# This is deliberately last: earlier legacy patches use exact text and can otherwise leave the old UI/loader in place.
+exec(Path("Scripts/patch_force_final_intake.py").read_text(encoding="utf-8"),{"__name__":"__build_patch__"})
+print("FINAL normalization: 3-item navigation + camera auto-detection + universal documents + reliable file loading + OCR quality + client association")
