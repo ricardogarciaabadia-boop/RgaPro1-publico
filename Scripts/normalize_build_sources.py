@@ -84,7 +84,6 @@ MAIN.write_text(fixed, encoding="utf-8")
 exec(Path("Scripts/patch_client_policy_list_ui.py").read_text(encoding="utf-8"), {"__name__": "__build_patch__"})
 
 # Pólizas is a clean index: all saved policies are individual access buttons.
-# Creating another policy is a separate action, so the last processed policy is
-# never shown as an upload/current-selection target.
+# Creating another policy is a separate action, so the last processed policy is never shown as an upload target.
 exec(Path("Scripts/patch_policy_list_clean.py").read_text(encoding="utf-8"), {"__name__": "__build_patch__"})
-print("Source normalization + Hogar fields + clean policy list complete")
+print("Source normalization + corrected DNI engine + unified OCR input complete")
