@@ -86,4 +86,7 @@ for sig in (
     text = remove_duplicate_methods(text, sig)
 
 MAIN.write_text(text, encoding="utf-8")
-print("Source normalization complete")
+
+# Execute the final Hogar policy-field layer in the same CI build.
+exec(Path("Scripts/patch_policy_hogar_values.py").read_text(encoding="utf-8"), {"__name__": "__build_patch__"})
+print("Source normalization + Hogar policy fields complete")
