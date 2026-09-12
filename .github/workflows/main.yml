@@ -18,6 +18,8 @@ jobs:
         run: python3 Scripts/fix_dni_ocr_accuracy.py
       - name: Apply OCR stabilization and automatic DNI side detection
         run: python3 Scripts/patch_ocr_stabilization_v4.py
+      - name: Apply DNI orientation and side classification v5
+        run: python3 Scripts/patch_ocr_dni_orientation_v5.py
       - name: Apply pressed-button visual feedback
         run: python3 Scripts/patch_button_press_feedback.py
       - name: Apply product-specific policy OCR fields
