@@ -8,9 +8,7 @@ new = 'if (((!id.isEmpty()) && id.equalsIgnoreCase(old.optString("identityNumber
 if old in text:
     text = text.replace(old, new, 1)
 
-# PdfDocument.PageInfo.Builder uses create(), not createPage().
 text = text.replace('.createPage();', '.create();')
-
 
 def end_of_method(s: str, start: int) -> int:
     brace = s.find('{', start)
@@ -18,35 +16,27 @@ def end_of_method(s: str, start: int) -> int:
         raise SystemExit('opening brace not found')
     depth = 0
     for i in range(brace, len(s)):
-        if s[i] == '{':
-            depth += 1
+        if s[i] == '{': depth += 1
         elif s[i] == '}':
             depth -= 1
-            if depth == 0:
-                return i + 1
+            if depth == 0: return i + 1
     raise SystemExit('unbalanced method')
 
-
 def remove_all_methods(src: str, signatures) -> str:
-    # Remove every historical spelling of the callback; we insert one canonical copy below.
     while True:
         hits = [(src.find(sig), sig) for sig in signatures]
         hits = [(p, sig) for p, sig in hits if p >= 0]
-        if not hits:
-            return src
+        if not hits: return src
         pos, sig = min(hits, key=lambda x: x[0])
         end = end_of_method(src, pos)
         src = src[:pos] + src[end:]
 
-
-# Historical patch scripts used both requestCode and request parameter names.
 permission_signatures = (
     '    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){',
     '    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){',
 )
 text = remove_all_methods(text, permission_signatures)
 
-# Insert exactly one permission callback before the normal document pickers.
 unified = '''    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){
         super.onRequestPermissionsResult(requestCode,permissions,grantResults);
         if(grantResults.length==0||grantResults[0]!=PackageManager.PERMISSION_GRANTED){
@@ -59,22 +49,18 @@ unified = '''    @Override public void onRequestPermissionsResult(int requestCod
 
 '''
 marker = '    private void chooseImage()'
-if marker not in text:
-    raise SystemExit('chooseImage marker not found')
+if marker not in text: raise SystemExit('chooseImage marker not found')
 text = text.replace(marker, unified + marker, 1)
 
-# Keep historical helper methods unique.
 def remove_duplicate_methods(src: str, signature: str) -> str:
     first = src.find(signature)
-    if first < 0:
-        return src
+    if first < 0: return src
     first_end = end_of_method(src, first)
     prefix = src[:first_end]
     rest = src[first_end:]
     while True:
         pos = rest.find(signature)
-        if pos < 0:
-            break
+        if pos < 0: break
         end = end_of_method(rest, pos)
         rest = rest[:pos] + rest[end:]
     return prefix + rest
@@ -87,6 +73,12 @@ for sig in (
 
 MAIN.write_text(text, encoding="utf-8")
 
-# Execute the final Hogar policy-field layer in the same CI build.
 exec(Path("Scripts/patch_policy_hogar_values.py").read_text(encoding="utf-8"), {"__name__": "__build_patch__"})
+
+# The Hogar patch is applied after the review method has been generated. Keep the
+# product check scoped to the parsed policy object, not to a nonexistent local.
+fixed = MAIN.read_text(encoding="utf-8")
+fixed = fixed.replace('if ("Hogar".equalsIgnoreCase(product)) {', 'if ("Hogar".equalsIgnoreCase(p.optString("policyType", ""))) {', 1)
+fixed = fixed.replace('if (!"Hogar".equalsIgnoreCase(product)) addPolicyField("CAPITAL",null,capitalE);', 'if (!"Hogar".equalsIgnoreCase(p.optString("policyType", ""))) addPolicyField("CAPITAL",null,capitalE);', 1)
+MAIN.write_text(fixed, encoding="utf-8")
 print("Source normalization + Hogar policy fields complete")
