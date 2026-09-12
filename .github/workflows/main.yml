@@ -1,62 +1,42 @@
 name: Android CI
-
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-
 permissions:
   contents: read
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Apply two-sided DNI JPEG OCR workflow
         run: python3 Scripts/patch_dni_two_sides.py
-
       - name: Apply robust DNI OCR accuracy patch
         run: python3 Scripts/fix_dni_ocr_accuracy.py
-
       - name: Apply product-specific policy OCR fields
         run: python3 Scripts/patch_policy_product_ui.py
-
       - name: Apply multi-page policy camera OCR workflow
         run: python3 Scripts/patch_policy_multipage_camera.py
-
       - name: Apply client document archive patch
         run: python3 Scripts/patch_client_document_archive.py
-
       - name: Apply essential client UI and policy archive rules
         run: python3 Scripts/patch_essential_client_view.py
-
       - name: Fix policy review number field
         run: python3 Scripts/fix_policy_review_number.py
-
-      - name: Restore known-good policy parser
-        shell: bash
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/ricardogarciaabadia-boop/RgaPro1-publico/b900a8fc7b880975708596c25ed518b95753a013/app/src/main/java/com/rgapro1/ocaso/OcasoPolicyParser.java \
-            -o app/src/main/java/com/rgapro1/ocaso/OcasoPolicyParser.java
-
       - name: Normalize Java source
         run: python3 Scripts/normalize_build_sources.py
-
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-
       - name: Build debug APK
         id: build
         shell: bash
@@ -66,7 +46,6 @@ jobs:
           status=$?
           cat build.log
           exit $status
-
       - name: Upload build diagnostics
         if: always()
         uses: actions/upload-artifact@v5
@@ -74,7 +53,6 @@ jobs:
           name: RgaPro1-build-diagnostics
           path: build.log
           if-no-files-found: ignore
-
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@v5
