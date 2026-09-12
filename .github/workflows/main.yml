@@ -16,6 +16,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Apply section-aware Ocaso policy OCR fix
+        run: python3 Scripts/fix_policy_section_scope.py
+
       - name: Apply two-sided DNI JPEG OCR workflow
         run: python3 Scripts/patch_dni_two_sides.py
 
