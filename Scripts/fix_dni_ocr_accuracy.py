@@ -3,7 +3,6 @@ from pathlib import Path
 MAIN = Path('app/src/main/java/com/rgapro1/ocaso/MainActivityV2.java')
 s = MAIN.read_text(encoding='utf-8')
 
-
 def replace_method(src: str, signature: str, replacement: str) -> str:
     start = src.find(signature)
     if start < 0:
@@ -42,18 +41,48 @@ helpers = r'''    private String normalizeOcrIdentity(String s){
         m=Pattern.compile("(\\d{6})[0-9][MF<](\\d{6})[0-9]").matcher(u.replace(" ",""));
         if(m.find()){String d=m.group(1);int yy=Integer.parseInt(d.substring(0,2));int year=yy>=30?1900+yy:2000+yy;return String.format(Locale.ROOT,"%02d/%02d/%04d",Integer.parseInt(d.substring(4,6)),Integer.parseInt(d.substring(2,4)),year);} return "";
     }
+    private String cleanDniName(String s){
+        if(s==null)return "";
+        return s.replace('<',' ').replaceAll("[^A-ZÁÉÍÓÚÜÑ ]"," ").replaceAll("\\s+"," ").trim();
+    }
     private String extractNameRobust(String text){
-        String u=normalizeOcrIdentity(text); Matcher m=Pattern.compile("(?m)^APELLIDOS?\\s*[:.-]?\\s*(.+?)(?=\\n(?:NOMBRE|SEXO|NACIONALIDAD|NACIMIENTO)|$)").matcher(u);
-        String sur=m.find()?m.group(1).trim():""; m=Pattern.compile("(?m)^NOMBRES?\\s*[:.-]?\\s*(.+?)(?=\\n(?:SEXO|NACIONALIDAD|NACIMIENTO)|$)").matcher(u);
-        String nam=m.find()?m.group(1).trim():""; m=Pattern.compile("([A-ZÁÉÍÓÚÑ]+(?:<[A-ZÁÉÍÓÚÑ]+)+)<<([A-ZÁÉÍÓÚÑ]+(?:<[A-ZÁÉÍÓÚÑ]+)+)").matcher(u.replace(" ",""));
-        if(m.find()){if(sur.isEmpty())sur=m.group(1).replace('<',' ').trim();if(nam.isEmpty())nam=m.group(2).replace('<',' ').trim();} return (nam+" "+sur).trim().replaceAll("\\s+"," ");
+        String u=normalizeOcrIdentity(text).replace("\r"," ").replace("\n"," ").replaceAll("\\s+"," ").trim();
+        String sur="",nam="";
+        Matcher m=Pattern.compile("APELLIDOS?\\s*[:.-]?\\s*(.+?)\\s+(?=NOMBRES?|SEXO|NACIONALIDAD|FECHA\\s+DE\\s+NACIMIENTO|NACIMIENTO)").matcher(u);
+        if(m.find())sur=cleanDniName(m.group(1));
+        m=Pattern.compile("NOMBRES?\\s*[:.-]?\\s*(.+?)\\s+(?=SEXO|NACIONALIDAD|FECHA\\s+DE\\s+NACIMIENTO|NACIMIENTO|NUM|Nº|IDESP)").matcher(u);
+        if(m.find())nam=cleanDniName(m.group(1));
+        // DNI español: MRZ is APELLIDOS<<NOMBRE; use it only to complete missing parts.
+        m=Pattern.compile("([A-ZÁÉÍÓÚÑ]+(?:<[A-ZÁÉÍÓÚÑ]+)+)<<([A-ZÁÉÍÓÚÑ]+(?:<[A-ZÁÉÍÓÚÑ]+)+)").matcher(u.replace(" ",""));
+        if(m.find()){if(sur.isEmpty())sur=cleanDniName(m.group(1));if(nam.isEmpty())nam=cleanDniName(m.group(2));}
+        if(nam.isEmpty()){
+            m=Pattern.compile("\\bNOMBRE\\s+([A-ZÁÉÍÓÚÑ]+(?:\\s+[A-ZÁÉÍÓÚÑ]+){0,2})\\b").matcher(u);
+            if(m.find())nam=cleanDniName(m.group(1));
+        }
+        return (nam+" "+sur).trim().replaceAll("\\s+"," ");
     }
     private JSONObject parseEssentialRobust(String text){
-        JSONObject x=parseEssential(text); try{String dni=extractDniRobust(text);if(!dni.isEmpty())x.put("identityNumber",dni);String birth=extractBirthDateRobust(text);if(!birth.isEmpty())x.put("birthDate",birth);String full=extractNameRobust(text);if(!full.isEmpty())x.put("fullName",full);int c=0;if(!dni.isEmpty())c+=45;if(!birth.isEmpty())c+=35;if(!full.isEmpty())c+=20;x.put("confidence",Math.max(x.optInt("confidence",0),c));}catch(Exception ignored){} return x;
+        JSONObject x=parseEssential(text); try{String dni=extractDniRobust(text);if(!dni.isEmpty())x.put("identityNumber",dni);String birth=extractBirthDateRobust(text);if(!birth.isEmpty())x.put("birthDate",birth);String full=extractNameRobust(text);if(!full.isEmpty()){x.put("fullName",full);x.put("name",full);x.put("holder",full);}int c=0;if(!dni.isEmpty())c+=45;if(!birth.isEmpty())c+=35;if(!full.isEmpty())c+=20;x.put("confidence",Math.max(x.optInt("confidence",0),c));}catch(Exception ignored){} return x;
     }
 '''
 if 'parseEssentialRobust' not in s:
     s=s.replace('    private void reviewDniPair(){',helpers+'\n    private void reviewDniPair(){',1)
+else:
+    s=replace_method(s,'    private String extractNameRobust(String text){',r'''    private String extractNameRobust(String text){
+        String u=normalizeOcrIdentity(text).replace("\r"," ").replace("\n"," ").replaceAll("\\s+"," ").trim();
+        String sur="",nam="";
+        Matcher m=Pattern.compile("APELLIDOS?\\s*[:.-]?\\s*(.+?)\\s+(?=NOMBRES?|SEXO|NACIONALIDAD|FECHA\\s+DE\\s+NACIMIENTO|NACIMIENTO)").matcher(u);
+        if(m.find())sur=cleanDniName(m.group(1));
+        m=Pattern.compile("NOMBRES?\\s*[:.-]?\\s*(.+?)\\s+(?=SEXO|NACIONALIDAD|FECHA\\s+DE\\s+NACIMIENTO|NACIMIENTO|NUM|Nº|IDESP)").matcher(u);
+        if(m.find())nam=cleanDniName(m.group(1));
+        m=Pattern.compile("([A-ZÁÉÍÓÚÑ]+(?:<[A-ZÁÉÍÓÚÑ]+)+)<<([A-ZÁÉÍÓÚÑ]+(?:<[A-ZÁÉÍÓÚÑ]+)+)").matcher(u.replace(" ",""));
+        if(m.find()){if(sur.isEmpty())sur=cleanDniName(m.group(1));if(nam.isEmpty())nam=cleanDniName(m.group(2));}
+        if(nam.isEmpty()){m=Pattern.compile("\\bNOMBRE\\s+([A-ZÁÉÍÓÚÑ]+(?:\\s+[A-ZÁÉÍÓÚÑ]+){0,2})\\b").matcher(u);if(m.find())nam=cleanDniName(m.group(1));}
+        return (nam+" "+sur).trim().replaceAll("\\s+"," ");
+    }''')
+    s=replace_method(s,'    private JSONObject parseEssentialRobust(String text){',r'''    private JSONObject parseEssentialRobust(String text){
+        JSONObject x=parseEssential(text); try{String dni=extractDniRobust(text);if(!dni.isEmpty())x.put("identityNumber",dni);String birth=extractBirthDateRobust(text);if(!birth.isEmpty())x.put("birthDate",birth);String full=extractNameRobust(text);if(!full.isEmpty()){x.put("fullName",full);x.put("name",full);x.put("holder",full);}int c=0;if(!dni.isEmpty())c+=45;if(!birth.isEmpty())c+=35;if(!full.isEmpty())c+=20;x.put("confidence",Math.max(x.optInt("confidence",0),c));}catch(Exception ignored){} return x;
+    }''')
 
 pair=r'''    private void processDniPairOcr(){
         TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS); if(frontBitmap==null||backBitmap==null){r.close();return;}
