@@ -100,21 +100,35 @@ public final class OcasoPolicyParser {
     private static Candidate firstPolicyCandidate(String s,int distance){Matcher m=POLICY_NUMBER.matcher(s);if(!m.find())return null;String v=m.group(1);if(looksLikePhone(v)||looksLikeDateNumber(v))return null;return new Candidate(v,100-distance*20);}
 
     private static String extractHolder(String[] lines){
-        String[] labels={"TOMADOR DEL SEGURO","TOMADOR/A","TOMADOR","CONTRATANTE","ASEGURADO"};
-        for(int i=0;i<lines.length;i++)for(String label:labels){int p=lines[i].indexOf(label);if(p<0)continue;String v=stripIdentityAndNoise(cutAtNextLabel(lines[i].substring(p+label.length())));if(isPlausiblePerson(v))return v;if(i+1<lines.length){v=stripIdentityAndNoise(cutAtNextLabel(lines[i+1]));if(isPlausiblePerson(v))return v;}}
+        int[] b=sectionBounds(lines,new String[]{"DATOS DEL TOMADOR Y DOMICILIO","TOMADOR DEL SEGURO Y DOMICILIO","TOMADOR DEL SEGURO"},new String[]{"RIESGO/S ASEGURADO/S","RIESGOS ASEGURADOS","DURACION DEL CONTRATO","DURACIÓN DEL CONTRATO"});
+        if(b[0]>=0){
+            for(int i=b[0];i<b[1];i++){
+                String v=stripIdentityAndNoise(lines[i]);
+                if(isPlausiblePerson(v)&&!isCompanyOrOffice(v))return v;
+            }
+        }
+        String[] labels={"TOMADOR DEL SEGURO","TOMADOR/A","TOMADOR","CONTRATANTE"};
+        for(int i=0;i<lines.length;i++)for(String label:labels){int p=lines[i].indexOf(label);if(p<0)continue;String v=stripIdentityAndNoise(cutAtNextLabel(lines[i].substring(p+label.length())));if(isPlausiblePerson(v)&&!isCompanyOrOffice(v))return v;if(i+1<lines.length){v=stripIdentityAndNoise(cutAtNextLabel(lines[i+1]));if(isPlausiblePerson(v)&&!isCompanyOrOffice(v))return v;}}
         return "";
     }
 
     private static String extractAddress(String[] lines){
-        String[] labels={"DOMICILIO DE COBRO","DOMICILIO DEL TOMADOR","DIRECCION DEL TOMADOR","DIRECCION","DOMICILIO"};
-        for(int i=0;i<lines.length;i++)for(String label:labels){int p=lines[i].indexOf(label);if(p<0)continue;String v=cutAtNextLabel(clean(lines[i].substring(p+label.length())));if(looksLikeAddress(v))return v;if(i+1<lines.length){v=cutAtNextLabel(clean(lines[i+1]));if(looksLikeAddress(v))return v;}}
+        int[] b=sectionBounds(lines,new String[]{"DATOS DEL TOMADOR Y DOMICILIO","TOMADOR DEL SEGURO Y DOMICILIO","TOMADOR DEL SEGURO"},new String[]{"RIESGO/S ASEGURADO/S","RIESGOS ASEGURADOS","DURACION DEL CONTRATO","DURACIÓN DEL CONTRATO"});
+        if(b[0]>=0){
+            for(int i=b[0];i<b[1];i++){
+                String line=lines[i];
+                int p=indexOfAny(line,new String[]{"DIRECCION:","DIRECCIÓN:","DIRECCION","DIRECCIÓN"});
+                if(p>=0){String v=line.substring(p+"DIRECCION".length());v=v.replaceFirst("^\\s*[:.-]\\s*","");v=cutAtNextLabel(v);if(looksLikeAddress(v)&&!isOcasoAddress(v))return v;}
+            }
+        }
         return "";
     }
 
     private static String extractIdentity(String text,String[] lines){
         ArrayList<Candidate> candidates=new ArrayList<>();
-        for(int i=0;i<lines.length;i++)addIdentityCandidates(candidates,lines[i],i,"DNI","NIE","DOC ID","DOCUMENTO","IDENTIFICACION","IDENTIFICACIÓN","TOMADOR");
-        addIdentityCandidates(candidates,text,0,"");
+        int[] b=sectionBounds(lines,new String[]{"DATOS DEL TOMADOR Y DOMICILIO","TOMADOR DEL SEGURO Y DOMICILIO","TOMADOR DEL SEGURO"},new String[]{"RIESGO/S ASEGURADO/S","RIESGOS ASEGURADOS","DURACION DEL CONTRATO","DURACIÓN DEL CONTRATO"});
+        if(b[0]>=0){for(int i=b[0];i<b[1];i++)addIdentityCandidates(candidates,lines[i],i,"DNI","NIE","DOC ID","DOC. ID","DOCUMENTO","IDENTIFICACION","IDENTIFICACIÓN","TOMADOR");}
+        if(candidates.isEmpty())for(int i=0;i<lines.length;i++)addIdentityCandidates(candidates,lines[i],i,"DNI","NIE","DOC ID","DOC. ID","DOCUMENTO","IDENTIFICACION","IDENTIFICACIÓN","TOMADOR");
         Collections.sort(candidates,new Comparator<Candidate>(){public int compare(Candidate a,Candidate b){return b.score-a.score;}});
         for(Candidate c:candidates)if(isValidIdentity(c.value))return c.value;
         return candidates.isEmpty()?"":candidates.get(0).value;
@@ -129,8 +143,16 @@ public final class OcasoPolicyParser {
 
     private static Candidate identityCandidate(String value,String source,int lineIndex,String... labels){int score=isValidIdentity(value)?100:5;String s=source.toUpperCase(Locale.ROOT);for(String label:labels)if(!label.isEmpty()&&s.contains(label))score+=40;if(s.contains("TOMADOR"))score+=25;return new Candidate(value,score-Math.min(lineIndex,20));}
 
-    private static String extractPhone(String text,String[] lines){for(String line:lines){String u=line.toUpperCase(Locale.ROOT);if(!(u.contains("TELEFONO")||u.contains("TELÉFONO")||u.contains("MOVIL")||u.contains("MÓVIL")||u.contains("TEL")))continue;Matcher m=PHONE.matcher(line.replaceAll("[ .-]",""));if(m.find())return m.group(1);}return "";}
-    private static String extractEmail(String text,String[] lines){for(String line:lines){if(!(line.contains("EMAIL")||line.contains("E-MAIL")||line.contains("CORREO")))continue;Matcher m=EMAIL.matcher(line);if(m.find())return m.group();}return "";}
+    private static String extractPhone(String text,String[] lines){
+        int[] b=sectionBounds(lines,new String[]{"DATOS DEL TOMADOR Y DOMICILIO","TOMADOR DEL SEGURO Y DOMICILIO","TOMADOR DEL SEGURO"},new String[]{"RIESGO/S ASEGURADO/S","RIESGOS ASEGURADOS","DURACION DEL CONTRATO","DURACIÓN DEL CONTRATO"});
+        if(b[0]>=0){for(int i=b[0];i<b[1];i++){String u=lines[i].toUpperCase(Locale.ROOT);if(!(u.contains("MEDIO/S DE CONTACTO")||u.contains("MEDIOS DE CONTACTO")||u.contains("TELEFONO")||u.contains("TELÉFONO")||u.contains("MOVIL")||u.contains("MÓVIL")))continue;String compact=lines[i].replaceAll("[ .-]","").replace("+34","");Matcher m=PHONE.matcher(compact);if(m.find())return m.group(1);}}
+        return "";
+    }
+    private static String extractEmail(String text,String[] lines){
+        int[] b=sectionBounds(lines,new String[]{"DATOS DEL TOMADOR Y DOMICILIO","TOMADOR DEL SEGURO Y DOMICILIO","TOMADOR DEL SEGURO"},new String[]{"RIESGO/S ASEGURADO/S","RIESGOS ASEGURADOS","DURACION DEL CONTRATO","DURACIÓN DEL CONTRATO"});
+        if(b[0]>=0){for(int i=b[0];i<b[1];i++){String line=lines[i];if(!(line.contains("EMAIL")||line.contains("E-MAIL")||line.contains("CORREO")))continue;Matcher m=EMAIL.matcher(line);if(m.find())return m.group();}}
+        return "";
+    }
 
     private static String extractMoney(String[] lines,String[] labels){
         for(String line:lines){String normalized=line.replaceAll("(?<=\\d)\\s+(?=\\d)","");for(String label:labels){int p=normalized.indexOf(label);if(p<0)continue;Matcher m=MONEY.matcher(normalized.substring(p+label.length()));if(m.find()){String v=normalizeMoney(m.group(1));if(isPlausibleMoney(v))return v;}}}return "";
@@ -138,22 +160,36 @@ public final class OcasoPolicyParser {
 
     private static JSONArray insured(String[] lines,boolean decesos){
         JSONArray result=new JSONArray();if(!decesos)return result;Set<String> seen=new HashSet<>();
-        for(int i=0;i<lines.length;i++){
+        int[] b=sectionBounds(lines,new String[]{"RELACION DE ASEGURADOS","RELACIÓN DE ASEGURADOS"},new String[]{"CAPITALES ASEGURADOS","CAPITALES","GARANTIAS","GARANTÍAS","DURACION DEL CONTRATO","DURACIÓN DEL CONTRATO"});
+        if(b[0]<0)return result;
+        for(int i=b[0];i<b[1];i++){
             ArrayList<String> ids=identityValues(lines[i]);if(ids.isEmpty())continue;String id=ids.get(0);if(seen.contains(id))continue;
-            String name=personAround(lines,i);String birth=dateAround(lines,i);if(name.isEmpty()&&birth.isEmpty())continue;
+            String name=personAround(lines,i,b[0],b[1]);String birth=dateAround(lines,i,b[0],b[1]);if(name.isEmpty()&&birth.isEmpty())continue;
             try{JSONObject x=new JSONObject();x.put("name",name);x.put("identityNumber",id);x.put("birthDate",birth);result.put(x);seen.add(id);}catch(Exception ignored){}
         }return result;
     }
 
     private static ArrayList<String> identityValues(String line){ArrayList<String> r=new ArrayList<>();Matcher m=DNI.matcher(line);while(m.find())r.add(m.group());Matcher s=DNI_SPACED.matcher(line);while(s.find())r.add(s.group(1)+s.group(2)+s.group(3));return r;}
 
-    private static String personAround(String[] lines,int i){
+    private static String personAround(String[] lines,int i,int from,int to){
         int[] order={i,i-1,i+1};
-        for(int idx:order){if(idx<0||idx>=lines.length)continue;String v=clean(lines[idx]).replaceAll("(?i)(DNI|NIE|DOC\\.? ID|DOCUMENTO)[ :.-]*[0-9A-Z]+","");v=cutAtNextLabel(v);if(isPlausiblePerson(v))return v;}
+        for(int idx:order){if(idx<from||idx>=to)continue;String v=clean(lines[idx]).replaceAll("(?i)(DNI|NIE|DOC\\.? ID|DOCUMENTO)[ :.-]*[0-9A-Z]+","");v=cutAtNextLabel(v);if(isPlausiblePerson(v)&&!isCompanyOrOffice(v))return v;}
         return "";
     }
 
-    private static String dateAround(String[] lines,int i){for(int idx:new int[]{i,i-1,i+1}){if(idx<0||idx>=lines.length)continue;Matcher m=DATE.matcher(lines[idx]);while(m.find()){String d=normalizeDate(m.group());if(validDate(d))return d;}}return "";}
+    private static String dateAround(String[] lines,int i,int from,int to){for(int idx:new int[]{i,i-1,i+1}){if(idx<from||idx>=to)continue;Matcher m=DATE.matcher(lines[idx]);while(m.find()){String d=normalizeDate(m.group());if(validDate(d))return d;}}return "";}
+
+    private static int[] sectionBounds(String[] lines,String[] starts,String[] ends){
+        int start=-1;
+        outer: for(int i=0;i<lines.length;i++){String u=lines[i];for(String marker:starts)if(u.contains(marker)){start=i;break outer;}}
+        if(start<0)return new int[]{-1,-1};
+        int end=lines.length;
+        for(int i=start+1;i<lines.length;i++){for(String marker:ends)if(lines[i].contains(marker)){end=i;return new int[]{start,end};}}
+        return new int[]{start,end};
+    }
+    private static int indexOfAny(String s,String[] markers){for(String m:markers){int p=s.indexOf(m);if(p>=0)return p;}return -1;}
+    private static boolean isCompanyOrOffice(String s){String u=clean(s).toUpperCase(Locale.ROOT);return u.contains("OCASO")||u.contains("COMPAÑIA DE SEGUROS")||u.contains("SOCIEDAD ANONIMA")||u.contains("SOCIAL:")||u.contains("SUCURSAL")||u.contains("AGENTE DE SEGUROS");}
+    private static boolean isOcasoAddress(String s){String u=clean(s).toUpperCase(Locale.ROOT);return u.contains("CALLE DE LA PRINCESA")||u.contains("Pº DE LA CASTELLANA")||u.contains("PASEO DE LA CASTELLANA")||u.contains("LAS ROZAS DE MADRID")||u.contains("SEVERO OCHOA");}
 
     private static String normalize(String raw){if(raw==null)return "";String s=raw.toUpperCase(Locale.ROOT).replace('\r','\n').replace('\u00A0',' ');s=s.replace("N°","Nº").replace("P0LIZA","POLIZA").replace("T0MADOR","TOMADOR").replace("RECIB0","RECIBO").replace("CAPlTAL","CAPITAL").replace("DECES0S","DECESOS").replace("DOMlCILIO","DOMICILIO").replace("DIRECClON","DIRECCION").replace("TELEF0NO","TELEFONO");return s.replaceAll("[ \\t]+"," ").replaceAll("\\n{2,}","\\n").trim();}
     private static String clean(String s){return s==null?"":s.trim().replaceAll("\\s+"," ");}
