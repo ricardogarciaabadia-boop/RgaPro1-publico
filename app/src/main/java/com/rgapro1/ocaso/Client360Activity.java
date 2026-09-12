@@ -49,6 +49,7 @@ public class Client360Activity extends FragmentActivity {
     }
 
 
+
     private void addGroup(LinearLayout body,String title,JSONObject p){
         body.addView(t(title,18,true));
         if(title.contains("PÓLIZAS")){
@@ -67,6 +68,7 @@ public class Client360Activity extends FragmentActivity {
             }
         }
     }
+
 
 
     private String documentPath(Object item){if(item==null||item==JSONObject.NULL)return "";if(item instanceof JSONObject)return ((JSONObject)item).optString("path","");return String.valueOf(item);}
@@ -97,6 +99,7 @@ public class Client360Activity extends FragmentActivity {
         }));
         dialog.show();
     }
+
 
 
     private void saveEditedClient(AlertDialog dialog, EditText holder, EditText name, EditText surname,
