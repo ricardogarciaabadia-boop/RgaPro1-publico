@@ -24,6 +24,8 @@ jobs:
         run: python3 Scripts/patch_ocr_dni_orientation_v6.py
       - name: Apply explicit DNI field parsing and single-image classification v7
         run: python3 Scripts/patch_ocr_dni_orientation_v7.py
+      - name: Apply automatic DNI crop, upright preview and side classification v8
+        run: python3 Scripts/patch_ocr_dni_orientation_v8.py
       - name: Apply pressed-button visual feedback
         run: python3 Scripts/patch_button_press_feedback.py
       - name: Apply product-specific policy OCR fields
