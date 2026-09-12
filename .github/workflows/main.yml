@@ -40,6 +40,10 @@ jobs:
         run: python3 Scripts/patch_policy_parser_v3.py
       - name: Strengthen policy parser field extraction
         run: python3 Scripts/patch_policy_parser_v4.py
+      - name: Fix policy product classification and policyholder DNI extraction
+        run: python3 Scripts/patch_policy_parser_v5.py
+      - name: Apply main navigation active state and transient document isolation
+        run: python3 Scripts/patch_navigation_state.py
       - name: Normalize Java source
         run: python3 Scripts/normalize_build_sources.py
       - name: Set up JDK 17
