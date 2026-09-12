@@ -51,7 +51,6 @@ exec(Path("Scripts/patch_policy_hogar_values.py").read_text(encoding="utf-8"),{"
 fixed=MAIN.read_text(encoding='utf-8')
 fixed=fixed.replace('if ("Hogar".equalsIgnoreCase(product)) {','if ("Hogar".equalsIgnoreCase(p.optString("policyType", ""))) {',1)
 fixed=fixed.replace('if (!"Hogar".equalsIgnoreCase(product)) addPolicyField("CAPITAL",null,capitalE);','if (!"Hogar".equalsIgnoreCase(p.optString("policyType", ""))) addPolicyField("CAPITAL",null,capitalE);',1)
-# DNI import: first DNI/NIE; if not found, same person by name + birth date.
 needle='            JSONObject x=findClientById(id);if(x==null)x=new JSONObject();'
 replacement='''            JSONObject x=findClientById(id);
             if(x==null&&!full.isEmpty()&&!birth.isEmpty()){
@@ -63,4 +62,5 @@ if needle in fixed: fixed=fixed.replace(needle,replacement,1)
 MAIN.write_text(fixed,encoding='utf-8')
 exec(Path("Scripts/patch_client_policy_list_ui.py").read_text(encoding="utf-8"),{"__name__":"__build_patch__"})
 exec(Path("Scripts/patch_policy_list_clean.py").read_text(encoding="utf-8"),{"__name__":"__build_patch__"})
-print("Source normalization + corrected DNI engine + unified OCR input + client association complete")
+exec(Path("Scripts/patch_unified_file_ingest.py").read_text(encoding="utf-8"),{"__name__":"__build_patch__"})
+print("Source normalization + unified automatic file ingestion + client association complete")
