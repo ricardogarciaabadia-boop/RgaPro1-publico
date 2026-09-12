@@ -25,9 +25,38 @@ helper=r'''    private String dniReverseAddress(String text){
     }
 '''
 if 'private String dniReverseAddress' not in s:
-    marker='    private void reviewDniPair(){'
-    if marker not in s: raise SystemExit('reviewDniPair marker not found')
-    s=s.replace(marker,helper+'\n'+marker,1)
+    s=s.replace('    private void reviewDniPair(){',helper+'\n    private void reviewDniPair(){',1)
+
+name_method=r'''    private String extractNameRobust(String text){
+        String u=normalizeOcrIdentity(text).replace('\r','\n');
+        String surnames="", name="";
+        String[] lines=u.split("\\n");
+        for(int i=0;i<lines.length;i++){
+            String l=lines[i].trim().replaceAll("\\s+"," ");
+            if(l.startsWith("APELLIDOS")){
+                String v=l.replaceFirst("^APELLIDOS?\\s*[:.-]?\\s*","").trim();
+                if(!v.isEmpty()&&!v.equals("APELLIDOS"))surnames=v;
+                else if(i+1<lines.length)surnames=lines[++i].trim();
+            }
+            if(l.startsWith("NOMBRE")){
+                String v=l.replaceFirst("^NOMBRES?\\s*[:.-]?\\s*","").trim();
+                if(!v.isEmpty()&&!v.equals("NOMBRE"))name=v;
+                else if(i+1<lines.length)name=lines[++i].trim();
+            }
+        }
+        if(surnames.isEmpty()){
+            Matcher m=Pattern.compile("(?i)APELLIDOS\\s*[:.-]?\\s*([A-ZÁÉÍÓÚÑ]+(?:\\s+[A-ZÁÉÍÓÚÑ]+)+)").matcher(u);
+            if(m.find())surnames=m.group(1).trim();
+        }
+        if(name.isEmpty()){
+            Matcher m=Pattern.compile("(?i)NOMBRE\\s*[:.-]?\\s*([A-ZÁÉÍÓÚÑ]+)").matcher(u);
+            if(m.find())name=m.group(1).trim();
+        }
+        if(!name.isEmpty()&&!surnames.isEmpty())return (name+" "+surnames).replaceAll("\\s+"," ").trim();
+        return !name.isEmpty()?name:surnames;
+    }
+'''
+s=replace_method(s,'    private String extractNameRobust(String text){',name_method)
 
 s=replace_method(s,'    private void processDniPairOcr(){',r'''    private void processDniPairOcr(){
         if(frontBitmap==null||backBitmap==null)return;
@@ -48,4 +77,4 @@ s=replace_method(s,'    private void processDniPairOcr(){',r'''    private void 
         });
     }''')
 P.write_text(s,encoding='utf-8')
-print('DNI v6 applied: upright preview + reverse-only address')
+print('DNI v6 updated: explicit NOMBRE/APELLIDOS extraction + upright preview + reverse-only address')
