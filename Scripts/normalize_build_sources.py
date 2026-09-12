@@ -75,10 +75,11 @@ MAIN.write_text(text, encoding="utf-8")
 
 exec(Path("Scripts/patch_policy_hogar_values.py").read_text(encoding="utf-8"), {"__name__": "__build_patch__"})
 
-# The Hogar patch is applied after the review method has been generated. Keep the
-# product check scoped to the parsed policy object, not to a nonexistent local.
 fixed = MAIN.read_text(encoding="utf-8")
 fixed = fixed.replace('if ("Hogar".equalsIgnoreCase(product)) {', 'if ("Hogar".equalsIgnoreCase(p.optString("policyType", ""))) {', 1)
 fixed = fixed.replace('if (!"Hogar".equalsIgnoreCase(product)) addPolicyField("CAPITAL",null,capitalE);', 'if (!"Hogar".equalsIgnoreCase(p.optString("policyType", ""))) addPolicyField("CAPITAL",null,capitalE);', 1)
 MAIN.write_text(fixed, encoding="utf-8")
-print("Source normalization + Hogar policy fields complete")
+
+# Final client ficha layout: only client data + one button per policy type/number.
+exec(Path("Scripts/patch_client_policy_list_ui.py").read_text(encoding="utf-8"), {"__name__": "__build_patch__"})
+print("Source normalization + Hogar fields + clean client policy list complete")
