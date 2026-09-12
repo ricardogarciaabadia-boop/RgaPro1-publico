@@ -40,6 +40,9 @@ jobs:
       - name: Isolate policyholder data from insurer data
         run: python3 Scripts/fix_policy_holder_address.py
 
+      - name: Apply strict policyholder context v2
+        run: python3 Scripts/patch_policyholder_context_v2.py
+
       - name: Normalize Java source
         run: python3 Scripts/normalize_build_sources.py
 
