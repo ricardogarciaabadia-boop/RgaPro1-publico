@@ -15,6 +15,12 @@ def replace_method(src,sig,replacement):
             if depth==0:return src[:start]+replacement+src[i+1:]
     raise SystemExit('unbalanced method: '+sig)
 
+def insert_before(src, marker, block):
+    if block.strip() in src:return src
+    p=src.find(marker)
+    if p<0:raise SystemExit('marker not found: '+marker)
+    return src[:p]+block+'\n'+src[p:]
+
 # FINAL NAVIGATION: only Inicio, Clientes and OCR. No top-level Pólizas button.
 def replace_shell(src):
     sig='    private void shell(String title,String subtitle){'
@@ -58,7 +64,6 @@ s=replace_method(s,'    private void ocrPage(){','''    private void ocrPage(){
     }
 ''')
 
-# Universal file chooser. Multiple images are accepted; PDF and common image formats are accepted.
 choose='''    private void chooseUniversalFile(){
         Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("*/*");
         i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"image/jpeg","image/jpg","image/png","image/webp","application/pdf"});
@@ -71,7 +76,7 @@ if '    private void chooseUniversalFile()' not in s:
     marker='    private void chooseImage()'
     s=s.replace(marker,choose+'\n'+marker,1)
 
-# Reliable decoder: do not reject valid document-provider URIs as "imagen vacía".
+# Reliable decoder.
 s=replace_method(s,'    private Bitmap loadBitmap(Uri u)throws Exception{','''    private Bitmap loadBitmap(Uri u)throws Exception{
         if(u==null)throw new IOException("archivo no disponible");
         Bitmap b=null;
@@ -84,11 +89,28 @@ s=replace_method(s,'    private Bitmap loadBitmap(Uri u)throws Exception{','''  
     }
 ''')
 
-# Detect a camera document in all four rotations. If it is DNI/NIE, require the reverse; otherwise enter multipage capture.
+# Preview selected files before OCR or save.
+preview='''    private void showDocumentPreview(ArrayList<Uri> uris, ArrayList<Bitmap> bitmaps, Runnable onContinue){
+        if(bitmaps==null||bitmaps.isEmpty()){onContinue.run();return;}
+        LinearLayout box=col();
+        box.addView(tv(bitmaps.size()==1?"Vista previa del archivo":"Vista previa de los archivos ("+bitmaps.size()+")",18,TEXT,true));
+        int shown=Math.min(bitmaps.size(),6);
+        for(int i=0;i<shown;i++){
+            Bitmap b=bitmaps.get(i);if(b==null)continue;
+            ImageView iv=new ImageView(this);iv.setImageBitmap(b);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);iv.setBackground(box(Color.WHITE,12));
+            box.addView(iv,new LinearLayout.LayoutParams(-1,dp(190)));
+            box.addView(tv(bitmaps.size()==1?"Archivo seleccionado":"Página "+(i+1),13,MUTED,false));
+        }
+        new AlertDialog.Builder(this).setTitle("DOCUMENTO SELECCIONADO").setView(box).setNegativeButton("✕ CANCELAR",null).setPositiveButton("✓ CONTINUAR",(d,w)->onContinue.run()).show();
+    }
+
+'''
+s=insert_before(s,'    private void processSelectedSingleFile(){',preview)
+
+# Detect camera document in all four rotations.
 helper='''    private void detectFirstCameraDocument(){
         if(currentBitmap==null){Toast.makeText(this,"La foto no se pudo leer.",Toast.LENGTH_LONG).show();return;}
-        final int[] angles={0,90,180,270};
-        detectCameraAngle(currentBitmap,angles,0,"",-1,-1);
+        final int[] angles={0,90,180,270};detectCameraAngle(currentBitmap,angles,0,"",-1,-1);
     }
     private void detectCameraAngle(Bitmap source,int[] angles,int index,String bestText,float bestScore,int bestAngle){
         if(index>=angles.length){
@@ -106,10 +128,9 @@ helper='''    private void detectFirstCameraDocument(){
     }
 
 '''
-if '    private void detectFirstCameraDocument()' not in s:
-    s=s.replace('    private void processSelectedDniFiles(){',helper+'    private void processSelectedDniFiles(){',1)
+if '    private void detectFirstCameraDocument()' not in s:s=s.replace('    private void processSelectedDniFiles(){',helper+'    private void processSelectedDniFiles(){',1)
 
-# FINAL activity result: one file auto-detects PDF/image/DNI; multiple files are classified before routing.
+# FINAL activity result with preview for every selected file set.
 activity='''    @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);if(result!=RESULT_OK)return;
         try{
@@ -122,17 +143,17 @@ activity='''    @Override protected void onActivityResult(int request,int result
                 if(data.getClipData()!=null){for(int i=0;i<data.getClipData().getItemCount();i++)files.add(data.getClipData().getItemAt(i).getUri());}else if(data.getData()!=null)files.add(data.getData());
                 if(files.isEmpty())return;
                 if(files.size()>=2){
-                    ArrayList<Bitmap> imgs=new ArrayList<>();for(Uri u:files){String mt=getContentResolver().getType(u);if(mt!=null&&mt.toLowerCase(Locale.ROOT).contains("pdf"))continue;imgs.add(loadBitmap(u));}
+                    ArrayList<Bitmap> imgs=new ArrayList<>();ArrayList<Uri> imgUris=new ArrayList<>();for(Uri fu:files){String mt=getContentResolver().getType(fu);if(mt!=null&&mt.toLowerCase(Locale.ROOT).contains("pdf"))continue;imgs.add(loadBitmap(fu));imgUris.add(fu);}
                     if(imgs.size()>=2){
-                        frontBitmap=imgs.get(0);backBitmap=imgs.get(1);frontImagePath=files.get(0).toString();backImagePath=files.get(1).toString();documentKind=1;documentUri=files.get(0);currentBitmap=frontBitmap;previewBitmap=frontBitmap;currentImagePath=frontImagePath;
-                        TextRecognizer rr=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);rr.process(InputImage.fromBitmap(frontBitmap,0)).addOnSuccessListener(t->{String a=t==null?"":t.getText();rr.close();if(isLikelyDniText(a)){processSelectedDniFiles();}else{policyPageUris.clear();policyPageBitmaps.clear();for(int i=0;i<imgs.size();i++){Bitmap z=DniImagePreprocessor.deskew(imgs.get(i));policyPageBitmaps.add(z);policyPageUris.add(files.get(i));}finishPolicyPhotoDocument();}}).addOnFailureListener(e->{rr.close();processSelectedDniFiles();});return;
+                        frontBitmap=imgs.get(0);backBitmap=imgs.get(1);frontImagePath=imgUris.get(0).toString();backImagePath=imgUris.get(1).toString();documentKind=1;documentUri=imgUris.get(0);currentBitmap=frontBitmap;previewBitmap=frontBitmap;currentImagePath=frontImagePath;
+                        showDocumentPreview(imgUris,imgs,()->{TextRecognizer rr=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);rr.process(InputImage.fromBitmap(frontBitmap,0)).addOnSuccessListener(t->{String a=t==null?"":t.getText();rr.close();if(isLikelyDniText(a)){processSelectedDniFiles();}else{policyPageUris.clear();policyPageBitmaps.clear();for(int i=0;i<imgs.size();i++){Bitmap z=DniImagePreprocessor.deskew(imgs.get(i));policyPageBitmaps.add(z);policyPageUris.add(imgUris.get(i));}finishPolicyPhotoDocument();}}).addOnFailureListener(e->{rr.close();processSelectedDniFiles();});});return;
                     }
                 }
                 Uri u=files.get(0);documentUri=u;currentImagePath=u.toString();String mt=getContentResolver().getType(u);boolean pdf=(mt!=null&&mt.toLowerCase(Locale.ROOT).contains("pdf"))||u.toString().toLowerCase(Locale.ROOT).endsWith(".pdf");documentKind=pdf?2:1;
-                if(pdf){previewBitmap=renderPdfFirstPage(u);processCurrentDocument();}else{currentBitmap=loadBitmap(u);previewBitmap=currentBitmap;processSelectedSingleFile();}return;
+                if(pdf){previewBitmap=renderPdfFirstPage(u);ArrayList<Uri> pu=new ArrayList<>();pu.add(u);ArrayList<Bitmap> pb=new ArrayList<>();pb.add(previewBitmap);showDocumentPreview(pu,pb,()->processCurrentDocument());}else{currentBitmap=loadBitmap(u);previewBitmap=currentBitmap;ArrayList<Uri> pu=new ArrayList<>();pu.add(u);ArrayList<Bitmap> pb=new ArrayList<>();pb.add(currentBitmap);showDocumentPreview(pu,pb,()->processSelectedSingleFile());}return;
             }
-            if(request==PDF){Uri u=data==null?null:data.getData();if(u==null)return;documentUri=u;documentKind=2;previewBitmap=renderPdfFirstPage(u);currentImagePath=u.toString();processCurrentDocument();return;}
-            if(request==IMAGE){Uri u=data==null?null:data.getData();if(u==null)return;documentUri=u;documentKind=1;currentBitmap=loadBitmap(u);previewBitmap=currentBitmap;currentImagePath=u.toString();processSelectedSingleFile();return;}
+            if(request==PDF){Uri u=data==null?null:data.getData();if(u==null)return;documentUri=u;documentKind=2;previewBitmap=renderPdfFirstPage(u);currentImagePath=u.toString();ArrayList<Uri> pu=new ArrayList<>();pu.add(u);ArrayList<Bitmap> pb=new ArrayList<>();pb.add(previewBitmap);showDocumentPreview(pu,pb,()->processCurrentDocument());return;}
+            if(request==IMAGE){Uri u=data==null?null:data.getData();if(u==null)return;documentUri=u;documentKind=1;currentBitmap=loadBitmap(u);previewBitmap=currentBitmap;currentImagePath=u.toString();ArrayList<Uri> pu=new ArrayList<>();pu.add(u);ArrayList<Bitmap> pb=new ArrayList<>();pb.add(currentBitmap);showDocumentPreview(pu,pb,()->processSelectedSingleFile());return;}
             Uri u=request==CAMERA?cameraUri:(data==null?null:data.getData());if(u==null)return;documentUri=u;documentKind=1;currentBitmap=loadBitmap(u);previewBitmap=currentBitmap;currentImagePath=u.toString();
             if(request==CAMERA){if(side==2){backBitmap=DniImagePreprocessor.prepare(currentBitmap);if(backBitmap==null)backBitmap=currentBitmap;backImagePath=currentImagePath;side=0;reviewDniPair();}else detectFirstCameraDocument();return;}
             processSelectedSingleFile();
@@ -141,7 +162,6 @@ activity='''    @Override protected void onActivityResult(int request,int result
 '''
 s=replace_method(s,'    @Override protected void onActivityResult(int request,int result,Intent data){',activity)
 
-# Single image: try OCR, then DNI or document/policy.
 s=replace_method(s,'    private void processSelectedSingleFile(){','''    private void processSelectedSingleFile(){
         if(currentBitmap==null){Toast.makeText(this,"Archivo de imagen vacío.",Toast.LENGTH_LONG).show();return;}
         Bitmap straight=DniImagePreprocessor.deskew(currentBitmap);if(straight!=null){currentBitmap=straight;previewBitmap=straight;}
@@ -150,7 +170,6 @@ s=replace_method(s,'    private void processSelectedSingleFile(){','''    privat
     }
 ''')
 
-# Make PDF OCR route automatic as well.
 s=replace_method(s,'    private void processCurrentDocument(){','''    private void processCurrentDocument(){
         if(documentUri==null||documentKind==0){Toast.makeText(this,"Primero selecciona un archivo.",Toast.LENGTH_LONG).show();return;}
         if(documentKind==2){PdfOcrHelper.process(this,documentUri,new PdfOcrHelper.Callback(){public void onSuccess(String text){runOnUiThread(()->routeOcrText(text));}public void onError(Exception e){runOnUiThread(()->Toast.makeText(MainActivityV2.this,"PDF: "+e.getMessage(),Toast.LENGTH_LONG).show());}});}else processSelectedSingleFile();
@@ -159,4 +178,4 @@ s=replace_method(s,'    private void processCurrentDocument(){','''    private v
 ''')
 
 MAIN.write_text(s,encoding='utf-8')
-print('FORCE FINAL INTAKE: 3-item navigation + camera auto-detection + universal documents + reliable file loading')
+print('FORCE FINAL INTAKE: 3-item navigation + camera auto-detection + universal documents + reliable file loading + selected-file previews')
