@@ -33,12 +33,13 @@ public final class PdfOcrHelper {
     public interface Callback {
         void onSuccess(String text);
         void onError(Exception error);
+        default void onProgress(int completedPages, int totalPages) { }
     }
 
-    private static final int MAX_WIDTH = 2800;
-    private static final int MAX_HEIGHT = 3800;
-    private static final int MIN_WIDTH = 1600;
-    private static final int MIN_HEIGHT = 2200;
+    // Keep per-page bitmaps bounded: some scanned policies contain dozens of pages.
+    private static final int MAX_WIDTH = 2000;
+    private static final int MAX_HEIGHT = 2800;
+    private static final int MIN_WIDTH = 1200;
 
     private PdfOcrHelper() {}
 
@@ -66,18 +67,16 @@ public final class PdfOcrHelper {
                                 page.render(source, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
 
                                 String bestText = recognize(recognizer, source);
-                                enhanced = enhanceForPolicyOcr(source);
 
-                                // En documentos escaneados la versión mejorada suele recuperar
-                                // letras pequeñas, pero no la imponemos si empeora el texto.
-                                String enhancedText = recognize(recognizer, enhanced);
-                                if (scoreOcr(enhancedText) > scoreOcr(bestText)) {
-                                    bestText = enhancedText;
+                                // Solo aplicar variantes costosas cuando la lectura inicial es débil.
+                                if (scoreOcr(bestText) < 75) {
+                                    enhanced = enhanceForPolicyOcr(source);
+                                    String enhancedText = recognize(recognizer, enhanced);
+                                    if (scoreOcr(enhancedText) > scoreOcr(bestText)) bestText = enhancedText;
                                 }
 
-                                // Si ambas variantes producen poco texto, un tercer intento
-                                // binarizado rescata formularios antiguos en blanco y negro.
-                                if (scoreOcr(bestText) < 55) {
+                                // Reservar el intento binarizado para páginas difíciles.
+                                if (scoreOcr(bestText) < 45 && enhanced != null) {
                                     Bitmap binary = null;
                                     try {
                                         binary = binarizeForPolicyOcr(enhanced);
@@ -104,6 +103,7 @@ public final class PdfOcrHelper {
                                 if (enhanced != null && !enhanced.isRecycled()) enhanced.recycle();
                                 if (source != null && !source.isRecycled()) source.recycle();
                             }
+                            callback.onProgress(i + 1, pages);
                         }
                     } finally {
                         recognizer.close();
@@ -125,11 +125,11 @@ public final class PdfOcrHelper {
 
     private static int[] renderSize(int pageWidth, int pageHeight) {
         float ratio = pageHeight / (float) Math.max(1, pageWidth);
-        int width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.round(pageWidth * 2.35f)));
+        int width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.round(pageWidth * 1.8f)));
         int height = Math.round(width * ratio);
         if (height > MAX_HEIGHT) {
             height = MAX_HEIGHT;
-            width = Math.max(MIN_WIDTH, Math.round(height / ratio));
+            width = Math.max(1, Math.round(height / ratio));
         }
         return new int[]{width, height};
     }
