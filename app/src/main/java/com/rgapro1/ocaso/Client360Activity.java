@@ -99,7 +99,8 @@ public class Client360Activity extends FragmentActivity {
         EditText birth=field("Fecha de nacimiento",client.optString("birthDate",""));
         EditText address=field("Dirección",client.optString("address",""));
         EditText phone=field("Teléfono",client.optString("phone",""));
-        EditText[] fields=new EditText[]{holder,identity,birth,address,phone};
+        EditText email=field("Email",client.optString("email",""));
+        EditText[] fields=new EditText[]{holder,identity,birth,address,phone,email};
         for(EditText e:fields)form.addView(e,new LinearLayout.LayoutParams(-1,dp(54)));
         ScrollView scroll=new ScrollView(this);scroll.addView(form);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Editar cliente").setView(scroll).setNegativeButton("Cancelar",null).setPositiveButton("Guardar",null).create();
@@ -109,7 +110,7 @@ public class Client360Activity extends FragmentActivity {
                 client.put("name",holder.getText().toString().trim());client.put("surname","");
                 client.put("identityNumber",identity.getText().toString().trim().toUpperCase(java.util.Locale.ROOT));
                 client.put("holderDni",identity.getText().toString().trim().toUpperCase(java.util.Locale.ROOT));
-                client.put("birthDate",birth.getText().toString().trim());client.put("address",address.getText().toString().trim());client.put("phone",phone.getText().toString().trim());
+                client.put("birthDate",birth.getText().toString().trim());client.put("address",address.getText().toString().trim());client.put("phone",phone.getText().toString().trim());client.put("email",email.getText().toString().trim());
                 client.put("updatedAt",System.currentTimeMillis());
                 if(saveClient(client)){dialog.dismiss();show();Toast.makeText(this,"✅ Datos del cliente guardados",Toast.LENGTH_LONG).show();}
                 else Toast.makeText(this,"No se encontró el cliente original",Toast.LENGTH_LONG).show();
