@@ -56,7 +56,10 @@ public class MainActivityV2 extends FragmentActivity {
     private EditText input(String hint){EditText e=new EditText(this);e.setHint(hint);e.setTextSize(16);e.setSingleLine(true);e.setPadding(dp(14),0,dp(14),0);e.setBackground(box(Color.WHITE,14));return e;}
     @Override public void onCreate(Bundle b){
         super.onCreate(b);
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE,WindowManager.LayoutParams.FLAG_SECURE);
+        // Keep production screens private while allowing screenshot-based debugging in debug APKs.
+        if (!BuildConfig.DEBUG) {
+            getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE,WindowManager.LayoutParams.FLAG_SECURE);
+        }
         prefs=getSharedPreferences("rgapro_local",MODE_PRIVATE);
         securePinStore=new SecurePinStore(getApplicationContext());
         if(securePinStore.hasPin())showPinLogin();else showPinSetup();
