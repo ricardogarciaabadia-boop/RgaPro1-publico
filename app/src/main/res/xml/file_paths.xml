@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <cache-path name="scan_cache" path="." />
-    <files-path name="app_files" path="." />
-    <external-files-path name="external_app_files" path="." />
+    <files-path name="client_documents" path="client_documents/" />
+    <files-path name="captures" path="captures/" />
+    <files-path name="policy_pages" path="policy_pages/" />
+    <!-- Narrow legacy paths keep documents from earlier APK versions accessible. -->
+    <external-files-path name="legacy_client_documents" path="documents/clients/" />
+    <external-files-path name="legacy_policy_pages" path="documents/policy_pages/" />
+    <external-files-path name="legacy_captures" path="captures/" />
 </paths>

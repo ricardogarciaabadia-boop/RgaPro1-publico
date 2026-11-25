@@ -6,23 +6,29 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Compatibility facade for the legacy MainActivity. The existing UI can keep using
- * SharedPreferences while the PIN itself is transparently stored in Android Keystore.
+ * Compatibility facade that preserves the SharedPreferences API while protecting
+ * the PIN and active customer cartera with Android Keystore-backed encryption.
  */
 public final class SecurePinPreferences implements SharedPreferences {
     private static final String PIN = "pin";
+    private static final String CLIENTS = "rgapro_clients";
     private final SharedPreferences delegate;
     private final SecurePinStore secure;
+    private final SecureLocalDataStore secureData;
 
-    public SecurePinPreferences(SharedPreferences delegate, SecurePinStore secure) {
+    public SecurePinPreferences(SharedPreferences delegate, SecurePinStore secure, SecureLocalDataStore secureData) {
         this.delegate = delegate;
         this.secure = secure;
+        this.secureData = secureData;
         secure.migrateLegacyPin(delegate, PIN);
+        secureData.migrate(delegate, CLIENTS);
     }
 
     @Override public Map<String, ?> getAll() {
         Map<String, ?> values = new HashMap<>(delegate.getAll());
         values.remove(PIN);
+        if (values.get(CLIENTS) instanceof String)
+            values.put(CLIENTS, secureData.decode((String) values.get(CLIENTS)));
         return values;
     }
 
@@ -30,6 +36,10 @@ public final class SecurePinPreferences implements SharedPreferences {
         if (PIN.equals(key)) {
             String pin = secure.readPin();
             return pin == null ? defValue : pin;
+        }
+        if (CLIENTS.equals(key)) {
+            String stored = delegate.getString(key, defValue);
+            return secureData.decode(stored);
         }
         return delegate.getString(key, defValue);
     }
@@ -55,6 +65,7 @@ public final class SecurePinPreferences implements SharedPreferences {
 
         @Override public Editor putString(String key, String value) {
             if (PIN.equals(key)) pendingPin = value;
+            else if (CLIENTS.equals(key)) editor.putString(key, secureData.encode(value));
             else editor.putString(key, value);
             return this;
         }

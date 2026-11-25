@@ -38,6 +38,20 @@ public class ExpiryNotificationReceiver extends BroadcastReceiver {
 
     private JSONObject findPolicy(Context context, String user, String id) {
         try {
+            if ("local".equals(user)) {
+                android.content.SharedPreferences prefs=context.getSharedPreferences("rgapro_local",Context.MODE_PRIVATE);
+                JSONArray clients = new JSONArray(SecureLocalDataStore.read(context,prefs,"rgapro_clients","[]"));
+                for (int i = 0; i < clients.length(); i++) {
+                    JSONObject client = clients.optJSONObject(i);
+                    JSONArray localPolicies = client == null ? null : client.optJSONArray("policies");
+                    if (localPolicies == null) continue;
+                    for (int j = 0; j < localPolicies.length(); j++) {
+                        JSONObject p = localPolicies.optJSONObject(j);
+                        if (p != null && id.equals(p.optString("id", "local_" + p.optString("number")))) return p;
+                    }
+                }
+                return null;
+            }
             JSONObject users = new JSONObject(context.getSharedPreferences("rgapro_local", Context.MODE_PRIVATE)
                     .getString("users_json", "{}"));
             JSONObject account = users.optJSONObject(user);
@@ -62,18 +76,19 @@ public class ExpiryNotificationReceiver extends BroadcastReceiver {
         if (context.getSharedPreferences("rgapro_local", Context.MODE_PRIVATE).getBoolean(noticeKey, false)) return;
 
         int id = Math.abs(noticeKey.hashCode());
-        Intent open = new Intent(context, MainActivity.class);
+        Intent open = new Intent(context, SecureMainActivity.class);
         PendingIntent pi = PendingIntent.getActivity(context, id, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         String when = days + " días";
-        String text = p.optString("holder") + " · " + p.optString("number") + " · vence en " + when;
+        // Notifications can appear on the lock screen; keep customer identifiers private.
+        String text = "Una póliza vence en " + when + ".";
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(context, CHANNEL) : new Notification.Builder(context);
         builder.setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("RgaPro · Vencimiento")
                 .setContentText(text)
-                .setStyle(new Notification.BigTextStyle().bigText("La póliza de " + p.optString("holder") +
-                        " (" + p.optString("type") + ") vence en " + when + ". Usuario: " + user + "."))
+                .setStyle(new Notification.BigTextStyle().bigText(text))
+                .setVisibility(Notification.VISIBILITY_PRIVATE)
                 .setAutoCancel(true).setContentIntent(pi);
         nm.notify(id, builder.build());
         context.getSharedPreferences("rgapro_local", Context.MODE_PRIVATE).edit().putBoolean(noticeKey, true).apply();

@@ -14,7 +14,8 @@ public class SecureMainActivity extends MainActivityV2 {
             SharedPreferences delegate = super.getSharedPreferences(name, mode);
             secureLocalPreferences = new SecurePinPreferences(
                     delegate,
-                    new SecurePinStore(getApplicationContext())
+                    new SecurePinStore(getApplicationContext()),
+                    new SecureLocalDataStore(getApplicationContext())
             );
         }
         return secureLocalPreferences;

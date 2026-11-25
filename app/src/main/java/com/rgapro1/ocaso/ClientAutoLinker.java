@@ -22,6 +22,7 @@ import java.util.regex.Pattern;
 /** Repairs OCR data and keeps all documents for the same person under one client. */
 public final class ClientAutoLinker {
     private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
+    private static final AtomicBoolean STARTED = new AtomicBoolean(false);
     private static final android.os.Handler MAIN = new android.os.Handler(android.os.Looper.getMainLooper());
     private static final Pattern DNI = Pattern.compile("\\b(?:[0-9]{8}[A-Z]|[XYZ][0-9]{7}[A-Z])\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern CIF = Pattern.compile("\\b[ABCDEFGHJNPQRSUVW][0-9]{7}[0-9A-J]\\b", Pattern.CASE_INSENSITIVE);
@@ -33,10 +34,9 @@ public final class ClientAutoLinker {
     private ClientAutoLinker() {}
 
     public static void start(final Context context) {
+        if (!STARTED.compareAndSet(false, true)) return;
         final Context app = context.getApplicationContext();
-        final Runnable[] tick = new Runnable[1];
-        tick[0] = () -> { repair(app); MAIN.postDelayed(tick[0], 2500L); };
-        MAIN.post(tick[0]);
+        MAIN.post(() -> repair(app));
     }
 
     public static void repair(final Context context) {
@@ -132,13 +132,9 @@ public final class ClientAutoLinker {
 
     private static boolean sameClient(JSONObject a, JSONObject b) {
         String ai=norm(id(a)), bi=norm(id(b));
-        if(!ai.isEmpty()&&!bi.isEmpty()) return ai.equals(bi);
-        String ae=norm(a.optString("email","")),be=norm(b.optString("email","")); if(!ae.isEmpty()&&!be.isEmpty()&&ae.equals(be))return true;
-        String ap=digits(a.optString("phone","")),bp=digits(b.optString("phone","")); if(!ap.isEmpty()&&!bp.isEmpty()&&ap.equals(bp))return true;
-        String an=normName(fullName(a)),bn=normName(fullName(b));
-        if(!an.isEmpty()&&!bn.isEmpty()&&(an.equals(bn)||an.contains(bn)||bn.contains(an)))return true;
-        if(!an.isEmpty()&&!bn.isEmpty()){String[]at=an.split(" "),bt=bn.split(" ");int common=0;for(String x:at)for(String y:bt)if(x.length()>2&&x.equals(y))common++;if(common>=2)return true;}
-        return false;
+        // Names, phones and emails can be shared or OCR-corrupted. Automatically
+        // merge only when both records contain the same DNI/NIE/CIF.
+        return !ai.isEmpty() && !bi.isEmpty() && ai.equals(bi);
     }
 
     private static void mergeInto(JSONObject base,JSONObject other)throws Exception{

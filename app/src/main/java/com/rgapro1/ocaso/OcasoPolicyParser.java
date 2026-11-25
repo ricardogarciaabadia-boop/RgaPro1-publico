@@ -28,8 +28,15 @@ public final class OcasoPolicyParser {
         try {
             String text=normalize(raw), lines[]=text.split("\\n"), product=classifyProduct(text);
             out.put("company",text.contains("OCASO")?"OCASO":""); out.put("policyType",product);
+            boolean proposal=text.contains("PROYECTO DE SEGURO")||text.contains("PROPUESTA DE SEGURO");
+            out.put("documentStatus",proposal?"PROPUESTA":"POLIZA");
             out.put("number",extractPolicyNumber(text,lines)); out.put("holder",extractHolder(lines));
-            out.put("identityNumber",extractIdentity(text,lines)); out.put("address",extractAddress(lines));
+            out.put("identityNumber",extractIdentity(text,lines));
+            String address=proposal?extractRiskAddress(lines):extractAddress(lines);if(address.isEmpty())address=proposal?extractAddress(lines):extractRiskAddress(lines);out.put("address",address);
+            out.put("birthDate",extractBirthDate(lines));
+            out.put("issueDate",extractDateAfter(lines,"FECHA DE EMISION","FECHA DE EMISIÓN"));
+            out.put("proposalValidUntil",extractDateAfter(lines,"VALIDO HASTA","VÁLIDO HASTA","VALIDA HASTA","VÁLIDA HASTA"));
+            out.put("expiry",proposal?"":extractDateAfter(lines,"FECHA DE VENCIMIENTO","VENCIMIENTO","FIN DE VIGENCIA","FECHA FIN DE VIGENCIA","VIGENTE HASTA"));
             out.put("phone",extractPhone(text,lines)); out.put("email",extractEmail(text,lines));
             out.put("receipt",extractMoney(lines,new String[]{"TOTAL DEL RECIBO","TOTAL RECIBO","IMPORTE TOTAL","PRIMA TOTAL","RECIBO","PRIMA"}));
             boolean decesos=isDecesos(product);
@@ -52,32 +59,90 @@ public final class OcasoPolicyParser {
     private static int score(String text,String token,int weight){int n=0,p=0;while((p=text.indexOf(token,p))>=0){n++;p+=token.length();}return n*weight;}
 
     private static String extractPolicyNumber(String text,String[] lines){
+        if(text.contains("PROYECTO DE SEGURO")||text.contains("PROPUESTA DE SEGURO")){
+            String reference=extractReference(lines);if(!reference.isEmpty())return reference;
+        }
         String[] labels={"NUMERO DE POLIZA","Nº DE POLIZA","Nº POLIZA","NUMERO POLIZA","POLIZA"};
         for(int i=0;i<lines.length;i++)for(String label:labels){int p=lines[i].indexOf(label);if(p<0)continue;String v=firstPolicyCandidate(lines[i].substring(p+label.length()));if(!v.isEmpty())return v;if(i+1<lines.length){v=firstPolicyCandidate(lines[i+1]);if(!v.isEmpty())return v;}}
+        return extractReference(lines);
+    }
+    private static String extractReference(String[] lines){
+        String[] referenceLabels={"NUMERO DE REFERENCIA","Nº DE REFERENCIA","Nº REFERENCIA","N REFERENCIA","REFERENCIA DEL PROYECTO"};
+        for(int i=0;i<lines.length;i++)for(String label:referenceLabels){int p=lines[i].indexOf(label);if(p<0)continue;String value=firstReferenceCandidate(lines[i].substring(p+label.length()));if(!value.isEmpty())return value;if(i+1<lines.length){value=firstReferenceCandidate(lines[i+1]);if(!value.isEmpty())return value;}}
         return "";
     }
-    private static String firstPolicyCandidate(String s){Matcher m=POLICY_NUMBER.matcher(s);while(m.find()){String v=m.group(1);if(v.length()>=5&&!looksLikePhone(v)&&!looksLikeDateNumber(v)&&!looksLikeMoneyNumber(v))return v;}return "";}
+    private static String firstPolicyCandidate(String s){Matcher m=POLICY_NUMBER.matcher(s);while(m.find()){String v=m.group(1);if(v.length()>=5&&!looksLikeDateNumber(v))return v;}return "";}
+    private static String firstReferenceCandidate(String s){Matcher m=POLICY_NUMBER.matcher(s);return m.find()&&m.group(1).length()>=5?m.group(1):"";}
 
     private static String extractHolder(String[] lines){
-        int[] b=policyholderBounds(lines);if(b[0]<0)return "";
+        String applicant=extractApplicant(lines);if(!applicant.isEmpty())return applicant;
+        int[] b=policyholderBounds(lines);if(b[0]<0)return extractApplicant(lines);
         String[] labels={"TOMADOR DEL SEGURO Y DOMICILIO","TOMADOR DEL SEGURO","TOMADOR/A","NOMBRE Y APELLIDOS","NOMBRE"};
         for(int i=b[0];i<b[1];i++)for(String label:labels){int p=lines[i].indexOf(label);if(p<0)continue;String v=stripIdentityAndNoise(lines[i].substring(p+label.length()));if(isRealPersonName(v))return v;for(int j=i+1;j<Math.min(i+4,b[1]);j++){v=stripIdentityAndNoise(lines[j]);if(!isFieldLabelOnly(v)&&isRealPersonName(v))return v;}}
-        return "";
+        return extractApplicant(lines);
     }
     private static String extractAddress(String[] lines){
         int[] b=policyholderBounds(lines);if(b[0]<0)return "";String[] labels={"DIRECCION:","DIRECCIÓN:","DIRECCION","DIRECCIÓN","DOMICILIO DEL TOMADOR","DOMICILIO"};
         for(int i=b[0];i<b[1];i++)for(String label:labels){int p=lines[i].indexOf(label);if(p<0)continue;String v=cutAtNextLabel(clean(lines[i].substring(p+label.length())));if(looksLikeAddress(v)&&!isOcasoAddressStrict(v)&&!isNonClientAddress(v))return v;for(int j=i+1;j<Math.min(i+4,b[1]);j++){v=cutAtNextLabel(clean(lines[j]));if(!isFieldLabelOnly(v)&&looksLikeAddress(v)&&!isOcasoAddressStrict(v)&&!isNonClientAddress(v))return v;}}
         return "";
     }
+    private static String extractRiskAddress(String[] lines){
+        for(int i=0;i<lines.length;i++)if(lines[i].contains("DIRECCION DEL RIESGO")||lines[i].contains("DIRECCIÓN DEL RIESGO")){
+            int end=Math.min(lines.length,i+12);for(int j=i+1;j<end;j++)if(lines[j].contains("CARACTERISTICAS DE LA VIVIENDA")){end=j;break;}
+            for(int j=i+1;j<end;j++){
+                String line=lines[j];int p=line.indexOf("DIRECCION");if(p<0)p=line.indexOf("DIRECCIÓN");
+                String value=p>=0?clean(line.substring(p+"DIRECCION".length())):clean(line);value=cutAtNextLabel(value);
+                if(looksLikeAddress(value)&&!isOcasoAddressStrict(value)&&!isNonClientAddress(value))return value;
+                if(p>=0&&j+1<end){value=cutAtNextLabel(clean(lines[j+1]));if(looksLikeAddress(value)&&!isOcasoAddressStrict(value)&&!isNonClientAddress(value))return value;}
+            }
+        }
+        return "";
+    }
     private static String extractIdentity(String text,String[] lines){
-        int[] b=policyholderBounds(lines);if(b[0]<0)return "";ArrayList<Candidate> c=new ArrayList<>();String[] labels={"DNI","NIE","DOC ID","DOCUMENTO","IDENTIFICACION","IDENTIFICACIÓN","TOMADOR"};
-        for(int i=b[0];i<b[1];i++){boolean near=false;for(String l:labels)if(lines[i].contains(l)){near=true;break;}if(near)for(int j=i;j<Math.min(i+3,b[1]);j++)addIdentityCandidates(c,lines[j],j,labels);}
+        ArrayList<Candidate> c=new ArrayList<>();String[] labels={"DNI","NIE","DOC ID","DOC. ID","DOCUMENTO","IDENTIFICACION","IDENTIFICACIÓN","TOMADOR","SOLICITANTE"};
+        int[] project=projectBounds(lines);if(project[0]>=0)collectIdentityCandidates(c,lines,project,labels);
+        if(c.isEmpty()){int[] b=policyholderBounds(lines);if(b[0]>=0)collectIdentityCandidates(c,lines,b,labels);}
         Collections.sort(c,new Comparator<Candidate>(){public int compare(Candidate a,Candidate b){return b.score-a.score;}});for(Candidate x:c)if(isValidIdentity(x.value))return x.value;return "";
+    }
+    private static void collectIdentityCandidates(ArrayList<Candidate> candidates,String[] lines,int[] bounds,String[] labels){
+        for(int i=bounds[0];i<bounds[1];i++){boolean near=false;for(String label:labels)if(lines[i].contains(label)){near=true;break;}if(near)for(int j=i;j<Math.min(i+3,bounds[1]);j++)addIdentityCandidates(candidates,lines[j],j,labels);}
+    }
+    private static String extractApplicant(String[] lines){
+        int[] b=projectBounds(lines);if(b[0]<0)return "";
+        for(int i=b[0];i<b[1];i++){int p=lines[i].indexOf("SOLICITANTE");if(p<0)continue;String value=clean(lines[i].substring(p+"SOLICITANTE".length()).replaceFirst("^[ :.-]+",""));if(isApplicantName(value))return value;for(int j=i+1;j<Math.min(i+3,b[1]);j++){value=clean(lines[j]);if(isApplicantName(value))return value;}}
+        return "";
+    }
+    private static boolean isApplicantName(String s){
+        if(!isRealPersonName(s)||s.contains("@"))return false;String u=clean(s).toUpperCase(Locale.ROOT);
+        return !(u.contains("MEDIO")||u.contains("CONTACTO")||u.contains("TELEFONO")||u.contains("TELÉFONO")||u.contains("OFICINA")||u.contains("SUC.")||u.contains("MEDIADOR")||u.contains("FECHA")||u.contains("DGSFP")||u.contains("DOC. ID"));
+    }
+    private static int[] projectBounds(String[] lines){
+        int start=-1;for(int i=0;i<lines.length;i++)if(lines[i].contains("DATOS DEL PROYECTO")){start=i;break;}
+        if(start<0)for(int i=0;i<lines.length;i++)if(lines[i].contains("PROYECTO DE SEGURO")){start=i;break;}
+        if(start>=0){
+            int end=Math.min(lines.length,start+30);for(int j=start+1;j<end;j++)if(lines[j].contains("DIRECCION DEL RIESGO")||lines[j].contains("DIRECCIÓN DEL RIESGO")){end=j;break;}
+            return new int[]{start,end};
+        }
+        return new int[]{-1,-1};
+    }
+    private static String extractBirthDate(String[] lines){
+        for(int i=0;i<lines.length;i++){
+            String line=lines[i];
+            if(!line.contains("NACIMIENTO"))continue;
+            Matcher m=DATE.matcher(line);boolean found=m.find();
+            if(!found&&i+1<lines.length){m=DATE.matcher(lines[i+1]);found=m.find();}
+            if(found)try{String date=String.format(Locale.ROOT,"%02d/%02d/%04d",Integer.parseInt(m.group(1)),Integer.parseInt(m.group(2)),Integer.parseInt(m.group(3)));if(validDate(date))return date;}catch(Exception ignored){}
+        }
+        return "";
+    }
+    private static String extractDateAfter(String[] lines,String... labels){
+        for(int i=0;i<lines.length;i++)for(String label:labels){int p=lines[i].indexOf(label);if(p<0)continue;Matcher m=DATE.matcher(lines[i].substring(p+label.length()));if(m.find()){String d=normalizeDate(m.group());if(validDate(d))return d;}if(i+1<lines.length){m=DATE.matcher(lines[i+1]);if(m.find()){String d=normalizeDate(m.group());if(validDate(d))return d;}}}
+        return "";
     }
     private static void addIdentityCandidates(ArrayList<Candidate> out,String source,int lineIndex,String... labels){Matcher m=DNI.matcher(source);while(m.find())out.add(identityCandidate(m.group(),source,lineIndex,labels));m=DNI_SPACED.matcher(source);while(m.find())out.add(identityCandidate(m.group(1)+m.group(2)+m.group(3),source,lineIndex,labels));String compact=source.toUpperCase(Locale.ROOT).replace('O','0').replace('I','1').replace('L','1');m=DNI.matcher(compact);while(m.find())out.add(identityCandidate(m.group(),source,lineIndex,labels));}
     private static Candidate identityCandidate(String value,String source,int lineIndex,String... labels){int score=isValidIdentity(value)?100:5;String s=source.toUpperCase(Locale.ROOT);for(String l:labels)if(!l.isEmpty()&&s.contains(l))score+=40;if(s.contains("TOMADOR"))score+=25;return new Candidate(value,score-Math.min(lineIndex,20));}
-    private static String extractPhone(String text,String[] lines){int[] b=policyholderBounds(lines);if(b[0]<0)return "";for(int i=b[0];i<b[1];i++){String u=lines[i];if(!(u.contains("MEDIOS DE CONTACTO")||u.contains("MEDIO/S DE CONTACTO")||u.contains("TELEFONO")||u.contains("TELÉFONO")||u.contains("MOVIL")||u.contains("MÓVIL")))continue;for(int j=i;j<Math.min(i+3,b[1]);j++){Matcher m=PHONE.matcher(lines[j].replaceAll("[ .-]","").replace("+34",""));if(m.find()&&!isOcasoPhone(m.group(1)))return m.group(1);}}return "";}
-    private static String extractEmail(String text,String[] lines){int[] b=policyholderBounds(lines);if(b[0]<0)return "";for(int i=b[0];i<b[1];i++){String u=lines[i];if(!(u.contains("EMAIL")||u.contains("E-MAIL")||u.contains("CORREO")))continue;Matcher m=EMAIL.matcher(u);if(m.find())return m.group();}return "";}
+    private static String extractPhone(String text,String[] lines){int[] project=projectBounds(lines);if(project[0]>=0)for(int i=project[0];i<project[1];i++)if(lines[i].contains("TELEFONO")||lines[i].contains("TELÉFONO")||lines[i].contains("MOVIL")||lines[i].contains("MÓVIL")){for(int j=i;j<Math.min(i+3,project[1]);j++){Matcher m=PHONE.matcher(lines[j].replaceAll("[ .-]","").replace("+34",""));if(m.find()&&!isOcasoPhone(m.group(1)))return m.group(1);}}int[] b=policyholderBounds(lines);if(b[0]>=0)for(int i=b[0];i<b[1];i++){String u=lines[i];if(!(u.contains("MEDIOS DE CONTACTO")||u.contains("MEDIO/S DE CONTACTO")||u.contains("TELEFONO")||u.contains("TELÉFONO")||u.contains("MOVIL")||u.contains("MÓVIL")))continue;for(int j=i;j<Math.min(i+3,b[1]);j++){Matcher m=PHONE.matcher(lines[j].replaceAll("[ .-]","").replace("+34",""));if(m.find()&&!isOcasoPhone(m.group(1)))return m.group(1);}}return "";}
+    private static String extractEmail(String text,String[] lines){int[] project=projectBounds(lines);if(project[0]>=0)for(int i=project[0];i<project[1];i++){Matcher m=EMAIL.matcher(lines[i]);if(m.find())return m.group();}int[] b=policyholderBounds(lines);if(b[0]>=0)for(int i=b[0];i<b[1];i++){String u=lines[i];if(!(u.contains("EMAIL")||u.contains("E-MAIL")||u.contains("CORREO")))continue;Matcher m=EMAIL.matcher(u);if(m.find())return m.group();}return "";}
     private static String extractMoney(String[] lines,String[] labels){for(String line:lines){String n=line.replaceAll("(?<=\\d)\\s+(?=\\d)","");for(String label:labels){int p=n.indexOf(label);if(p<0)continue;Matcher m=MONEY.matcher(n.substring(p+label.length()));if(m.find()){String v=normalizeMoney(m.group(1));if(isPlausibleMoney(v))return v;}}}return "";}
 
     private static JSONArray insured(String[] lines,boolean decesos){

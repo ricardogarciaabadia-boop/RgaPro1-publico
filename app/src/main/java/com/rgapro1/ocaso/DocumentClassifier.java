@@ -24,7 +24,9 @@ public final class DocumentClassifier {
         int front=frontScore(u),back=backScore(u),policy=policyScore(u),receipt=receiptScore(u);
         // El reverso DNI/NIE tiene prioridad y nunca se envía al parser de pólizas.
         if(back>=12 && back>=front+2 && back>=policy)return new Result(DocumentType.DNI_BACK,back,"patrones de reverso DNI/NIE");
-        if(front>=13 && front>=policy && front>=receipt)return new Result(DocumentType.DNI_FRONT,front,"patrones de anverso DNI/NIE");
+        // Una póliza suele repetir nombre, DNI y nacimiento del tomador. Exigimos
+        // una ventaja clara de señales de identidad para evitar clasificarla como DNI.
+        if(front>=15 && front>=policy+3 && front>=receipt)return new Result(DocumentType.DNI_FRONT,front,"patrones de anverso DNI/NIE");
         if(policy>=10 && policy>=receipt+2)return new Result(DocumentType.POLICY,policy,"contexto asegurador");
         if(receipt>=10 && receipt>=policy+2)return new Result(DocumentType.RECEIPT,receipt,"contexto de recibo");
         return new Result(DocumentType.UNKNOWN,Math.max(Math.max(front,back),Math.max(policy,receipt)),"confianza insuficiente");
@@ -44,6 +46,8 @@ public final class DocumentClassifier {
         int s=0;if(u.contains("POLIZA")||u.contains("POLIZA DE SEGURO")||u.contains("CONDICIONES PARTICULARES"))s+=5;
         if(u.contains("TOMADOR")||u.contains("ASEGURADO"))s+=3;if(u.contains("FECHA EFECTO")||u.contains("EFECTO"))s+=2;
         if(u.contains("PRIMA")||u.contains("CAPITAL ASEGURADO")||u.contains("RECIBO"))s+=2;if(u.contains("OCASO")||u.contains("AEGON"))s+=2;
+        if(u.contains("PROYECTO DE SEGURO"))s+=7;if(u.contains("NUMERO DE REFERENCIA")||u.contains("Nº REFERENCIA")||u.contains("N REFERENCIA"))s+=4;
+        if(u.contains("OCASO HOGAR")||u.contains("PRECIO CONFIRMADO"))s+=3;if(u.contains("FECHA DE EMISION"))s+=1;
         if(DATE.matcher(u).find())s+=1;return s;
     }
     private static int receiptScore(String u){

@@ -8,6 +8,9 @@ import android.graphics.*;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.text.*;
@@ -30,14 +33,19 @@ public class MainActivityV2 extends FragmentActivity {
     private static final int NAVY=Color.rgb(8,35,70), BLUE=Color.rgb(22,126,222), BG=Color.rgb(246,248,252);
     private static final int TEXT=Color.rgb(28,39,54), MUTED=Color.rgb(100,112,130), GREEN=Color.rgb(31,132,88);
     private static final int CAMERA=8101, IMAGE=8102, PDF=8103, POLICY_CAMERA=8104, POLICY_CAMERA_PERMISSION=8105;
+    private static final long SESSION_IDLE_LIMIT_MS=5*60*1000L;
     private SharedPreferences prefs; private LinearLayout body; private Uri cameraUri, documentUri; private int side=0;
+    private SecurePinStore securePinStore; private final Handler sessionHandler=new Handler(Looper.getMainLooper());
+    private boolean authenticated=false,clientStoreReadFailed=false; private long lastInteractionElapsed=0L;
+    private final Runnable lockForInactivity=()->{if(authenticated){authenticated=false;showPinLogin();}};
     private String frontText="", backText="", currentImagePath="", frontImagePath="", backImagePath=""; private Bitmap currentBitmap, previewBitmap, frontBitmap, backBitmap;
     private int documentKind=0; // 1 imagen, 2 PDF
+    private boolean awaitingDniBack=false, dniPairConfirmed=false;
     private final ArrayList<Uri> policyPageUris = new ArrayList<>();
     private final ArrayList<Bitmap> policyPageBitmaps = new ArrayList<>();
     private boolean policyCameraFlow = false;
     private EditText fullNameE,dniE,birthE,addressE,phoneE;
-    private EditText policyNumberE,holderE,policyDniE,policyAddressE,policyPhoneE,policyEmailE,policyEffectiveE,policyExpiryE,receiptE,capitalE,decesosE,decesosLeveladaE;
+    private EditText policyNumberE,holderE,policyDniE,policyAddressE,policyPhoneE,policyEmailE,policyBirthE,policyEffectiveE,policyExpiryE,receiptE,capitalE,decesosE,decesosLeveladaE;
     private TextView confidenceTv;
 
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
@@ -46,7 +54,97 @@ public class MainActivityV2 extends FragmentActivity {
     private GradientDrawable box(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));g.setStroke(dp(1),Color.rgb(222,228,236));return g;}
     private Button btn(String text,boolean primary){Button b=new Button(this);b.setText(text);b.setTextSize(15);b.setAllCaps(false);b.setTextColor(primary?Color.WHITE:TEXT);b.setBackground(box(primary?BLUE:Color.WHITE,18));b.setPadding(dp(10),dp(6),dp(10),dp(6));return b;}
     private EditText input(String hint){EditText e=new EditText(this);e.setHint(hint);e.setTextSize(16);e.setSingleLine(true);e.setPadding(dp(14),0,dp(14),0);e.setBackground(box(Color.WHITE,14));return e;}
-    @Override public void onCreate(Bundle b){super.onCreate(b);prefs=getSharedPreferences("rgapro_local",MODE_PRIVATE);home();}
+    @Override public void onCreate(Bundle b){
+        super.onCreate(b);
+        getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE,WindowManager.LayoutParams.FLAG_SECURE);
+        prefs=getSharedPreferences("rgapro_local",MODE_PRIVATE);
+        securePinStore=new SecurePinStore(getApplicationContext());
+        if(securePinStore.hasPin())showPinLogin();else showPinSetup();
+    }
+
+    @Override protected void onStart(){
+        super.onStart();
+        if(authenticated&&lastInteractionElapsed>0){
+            long remaining=SESSION_IDLE_LIMIT_MS-(SystemClock.elapsedRealtime()-lastInteractionElapsed);
+            if(remaining<=0){authenticated=false;showPinLogin();}
+            else sessionHandler.postDelayed(lockForInactivity,remaining);
+        }
+    }
+
+    @Override protected void onStop(){
+        sessionHandler.removeCallbacks(lockForInactivity);
+        super.onStop();
+    }
+
+    @Override public void onUserInteraction(){
+        super.onUserInteraction();
+        if(authenticated)scheduleSessionLock();
+    }
+
+    @Override public void onBackPressed(){
+        if(!authenticated){finish();return;}
+        super.onBackPressed();
+    }
+
+    private void scheduleSessionLock(){
+        lastInteractionElapsed=SystemClock.elapsedRealtime();
+        sessionHandler.removeCallbacks(lockForInactivity);
+        sessionHandler.postDelayed(lockForInactivity,SESSION_IDLE_LIMIT_MS);
+    }
+
+    private void showPinSetup(){
+        LinearLayout root=authLayout("Crear acceso","Define un PIN de seis dígitos para proteger la cartera.");
+        EditText first=input("Nuevo PIN de 6 dígitos"),confirm=input("Repite el PIN");
+        first.setInputType(android.text.InputType.TYPE_CLASS_NUMBER|android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        confirm.setInputType(android.text.InputType.TYPE_CLASS_NUMBER|android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        root.addView(first,new LinearLayout.LayoutParams(-1,dp(56)));
+        root.addView(confirm,new LinearLayout.LayoutParams(-1,dp(56)));
+        Button save=btn("Guardar PIN",true);root.addView(save,new LinearLayout.LayoutParams(-1,dp(58)));
+        save.setOnClickListener(v->{
+            String pin=first.getText().toString(),repeat=confirm.getText().toString();
+            if(!pin.matches("\\d{6}")){first.setError("El PIN debe tener seis cifras");return;}
+            if(!pin.equals(repeat)){confirm.setError("Los PIN no coinciden");return;}
+            try{securePinStore.setPin(pin);prefs.edit().putInt("pin_failed_attempts",0).putInt("pin_lock_level",0).putLong("pin_lock_until",0L).apply();unlockSession();}
+            catch(Exception e){Toast.makeText(this,"No se pudo proteger el PIN en este dispositivo.",Toast.LENGTH_LONG).show();}
+        });
+        setContentView(root);
+    }
+
+    private void showPinLogin(){
+        LinearLayout root=authLayout("Acceso protegido","Introduce tu PIN para abrir la cartera.");
+        EditText pin=input("PIN de 6 dígitos");
+        pin.setInputType(android.text.InputType.TYPE_CLASS_NUMBER|android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        root.addView(pin,new LinearLayout.LayoutParams(-1,dp(56)));
+        TextView status=tv("",14,MUTED,false);root.addView(status);
+        Button enter=btn("Desbloquear",true);root.addView(enter,new LinearLayout.LayoutParams(-1,dp(58)));
+        enter.setOnClickListener(v->{
+            long waitUntil=prefs.getLong("pin_lock_until",0L),now=System.currentTimeMillis();
+            if(now<waitUntil){status.setText("Acceso temporalmente bloqueado. Inténtalo más tarde.");return;}
+            if(securePinStore.verifyPin(pin.getText().toString())){
+                prefs.edit().putInt("pin_failed_attempts",0).putInt("pin_lock_level",0).putLong("pin_lock_until",0L).apply();unlockSession();return;
+            }
+            int attempts=prefs.getInt("pin_failed_attempts",0)+1;
+            SharedPreferences.Editor edit=prefs.edit().putInt("pin_failed_attempts",attempts);
+            if(attempts>=5){
+                int level=prefs.getInt("pin_lock_level",0)+1;long delay=Math.min(15*60_000L,30_000L*(1L<<Math.min(level-1,5)));
+                edit.putInt("pin_failed_attempts",0).putInt("pin_lock_level",level).putLong("pin_lock_until",now+delay);
+                status.setText("Demasiados intentos. Espera "+(delay<60_000L?delay/1_000L+" segundos.":delay/60_000L+" minutos."));
+            }
+            else status.setText("PIN incorrecto. Intento "+attempts+" de 5.");
+            edit.apply();pin.setText("");
+        });
+        setContentView(root);
+    }
+
+    private LinearLayout authLayout(String title,String subtitle){
+        LinearLayout root=col();root.setGravity(Gravity.CENTER);root.setPadding(dp(24),dp(24),dp(24),dp(24));root.setBackgroundColor(BG);
+        TextView brand=tv("RgaPro",30,NAVY,true);brand.setGravity(Gravity.CENTER);root.addView(brand,new LinearLayout.LayoutParams(-1,dp(60)));
+        TextView heading=tv(title,22,TEXT,true);heading.setGravity(Gravity.CENTER);root.addView(heading,new LinearLayout.LayoutParams(-1,dp(52)));
+        TextView explain=tv(subtitle,15,MUTED,false);explain.setGravity(Gravity.CENTER);root.addView(explain,new LinearLayout.LayoutParams(-1,dp(60)));
+        return root;
+    }
+
+    private void unlockSession(){authenticated=true;home();scheduleSessionLock();}
 
     private void shell(String title,String subtitle){
         LinearLayout root=col();root.setBackgroundColor(BG);
@@ -66,7 +164,22 @@ public class MainActivityV2 extends FragmentActivity {
         Button ps=btn("📄  PÓLIZAS",false);ps.setOnClickListener(v->policies());body.addView(ps,new LinearLayout.LayoutParams(-1,dp(58)));
     }
 
-    private void expiries(){shell("Próximas bajas","Alertas 60 · 40 · 30 · 7 · 1 día");body.addView(tv("PRÓXIMAS BAJAS",24,TEXT,true));JSONArray a=clientsData();int[] targets={1,7,30,40,60};boolean any=false;for(int target:targets){for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x==null)continue;long d=daysUntil(x.optString("expiry"));if(d==target){any=true;TextView r=tv("🔔 "+target+" días · "+clientKey(x)+System.lineSeparator()+"DNI: "+x.optString("identityNumber","—")+" · Fecha: "+x.optString("expiry","—"),15,TEXT,false);r.setBackground(box(Color.WHITE,14));body.addView(r,new LinearLayout.LayoutParams(-1,dp(70)));}}}if(!any)body.addView(tv("No hay bajas exactamente en 60, 40, 30, 7 o 1 día.",15,MUTED,false));}
+    private void expiries(){
+        shell("Próximos vencimientos","Pólizas que vencen en los próximos 60 días");
+        body.addView(tv("PRÓXIMOS VENCIMIENTOS",24,TEXT,true));
+        JSONArray clients=clientsData();ArrayList<String> rows=new ArrayList<>();
+        for(int i=0;i<clients.length();i++){
+            JSONObject client=clients.optJSONObject(i);if(client==null)continue;
+            JSONArray policies=client.optJSONArray("policies");if(policies==null)continue;
+            for(int j=0;j<policies.length();j++){
+                JSONObject policy=policies.optJSONObject(j);if(policy==null||"PROPUESTA".equalsIgnoreCase(policy.optString("documentStatus","")))continue;
+                String expiry=policy.optString("expiry",policy.optString("validityDate",""));long days=daysUntil(expiry);
+                if(days>=0&&days<=60)rows.add(String.format(Locale.ROOT,"%03d|🔔 %d días · %s%n%s · Vence: %s",days,days,clientKey(client),policy.optString("number","Póliza"),expiry));
+            }
+        }
+        Collections.sort(rows);for(String row:rows){int divider=row.indexOf('|');TextView item=tv(divider>=0?row.substring(divider+1):row,15,TEXT,false);item.setBackground(box(Color.WHITE,14));body.addView(item,new LinearLayout.LayoutParams(-1,dp(70)));}
+        if(rows.isEmpty())body.addView(tv("No hay pólizas formalizadas que venzan en los próximos 60 días.",15,MUTED,false));
+    }
 
     private void clients(){shell("Clientes","Listado alfabético + Búsqueda 360");body.addView(tv("Clientes A-Z",26,TEXT,true));EditText q=input("Buscar DNI/NIE, nombre, teléfono, póliza o dirección");body.addView(q,new LinearLayout.LayoutParams(-1,dp(58)));LinearLayout list=col();body.addView(list);Runnable r=()->{list.removeAllViews();ArrayList<JSONObject> xs=new ArrayList<>();JSONArray a=clientsData();String s=q.getText().toString().trim();for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&(s.isEmpty()||matches(x,s)))xs.add(x);}Collections.sort(xs,(x,y)->clientKey(x).compareToIgnoreCase(clientKey(y)));if(xs.isEmpty())list.addView(tv("No hay clientes guardados todavía.",15,MUTED,false));for(JSONObject x:xs)addClientCard(list,x);};q.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int b,int c){}public void onTextChanged(CharSequence s,int a,int b,int c){r.run();}public void afterTextChanged(Editable e){}});r.run();Button add=btn("＋ NUEVO CLIENTE",true);add.setOnClickListener(v->editClient(null));body.addView(add,new LinearLayout.LayoutParams(-1,dp(58)));}
     private void addClientCard(LinearLayout list,JSONObject x){Button b=btn("👤  "+clientKey(x)+System.lineSeparator()+x.optString("identityNumber","")+" · "+x.optString("phone",""),false);b.setGravity(Gravity.CENTER_VERTICAL|Gravity.LEFT);b.setOnClickListener(v->detail(x));list.addView(b,new LinearLayout.LayoutParams(-1,dp(76)));}
@@ -91,6 +204,8 @@ public class MainActivityV2 extends FragmentActivity {
             d.setOnClickListener(v->openDocument(path));
             body.addView(d,new LinearLayout.LayoutParams(-1,dp(56)));
         }
+        JSONArray archived=x.optJSONArray("documents");
+        if(archived!=null&&archived.length()>0)addDocumentsToDetail(body,x);
         JSONArray ps=x.optJSONArray("policies");
         if(ps!=null) for(int i=0;i<ps.length();i++){
             JSONObject p=ps.optJSONObject(i); if(p==null) continue;
@@ -147,7 +262,7 @@ public class MainActivityV2 extends FragmentActivity {
                     x.put("phone",ph.getText().toString().trim());
                     if(!x.has("policies")) x.put("policies",new JSONArray());
                     if(!x.has("documentPhotos")) x.put("documentPhotos",new JSONArray());
-                    upsertClient(x); clients();
+                    if(upsertClient(x))clients();
                 }catch(Exception e){Toast.makeText(this,"No se pudo guardar",Toast.LENGTH_LONG).show();}
             }).show();
     }
@@ -170,7 +285,7 @@ public class MainActivityV2 extends FragmentActivity {
             if(ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){
                 requestPermissions(new String[]{Manifest.permission.CAMERA}, POLICY_CAMERA_PERMISSION);return;
             }
-            File dir=new File(getExternalFilesDir("documents"),"policy_pages");
+            File dir=new File(getFilesDir(),"policy_pages");
             if(!dir.exists()&&!dir.mkdirs())throw new IOException("No se pudo crear la carpeta de páginas");
             File f=File.createTempFile("poliza_pagina_",".jpg",dir);
             cameraUri=FileProvider.getUriForFile(this,getPackageName()+".fileprovider",f);
@@ -192,7 +307,7 @@ public class MainActivityV2 extends FragmentActivity {
     }
 
     private File buildPolicyPdf() throws Exception{
-        File dir=new File(getExternalFilesDir("documents"),"policy_pages");if(!dir.exists()&&!dir.mkdirs())throw new IOException("No se pudo crear el archivo");
+        File dir=new File(getFilesDir(),"policy_pages");if(!dir.exists()&&!dir.mkdirs())throw new IOException("No se pudo crear el archivo");
         File out=File.createTempFile("poliza_documento_",".pdf",dir);
         android.graphics.pdf.PdfDocument pdf=new android.graphics.pdf.PdfDocument();
         try{
@@ -244,16 +359,20 @@ public class MainActivityV2 extends FragmentActivity {
         LinearLayout l=col();
         String product=p.optString("policyType",p.optString("type","Póliza"));
         boolean decesos="Decesos".equalsIgnoreCase(product);
+        addRead(l,"Estado del documento","PROPUESTA".equalsIgnoreCase(p.optString("documentStatus",""))?"Propuesta pendiente de formalización":"Póliza");
         addRead(l,"Producto",product);
-        addRead(l,"Número de póliza",p.optString("number",""));
+        addRead(l,"PROPUESTA".equalsIgnoreCase(p.optString("documentStatus",""))?"Número de referencia":"Número de póliza",p.optString("number",""));
         addRead(l,"Tomador",p.optString("holder",""));
         addRead(l,"DNI/NIE",p.optString("identityNumber",""));
         addRead(l,"Dirección",p.optString("address",""));
         addRead(l,"Teléfono",p.optString("phone",""));
         addRead(l,"Email",p.optString("email",""));
         addRead(l,"Precio / recibo",p.optString("receipt",""));
+        if(!"PROPUESTA".equalsIgnoreCase(p.optString("documentStatus","")))addRead(l,"Vencimiento",p.optString("expiry",p.optString("validityDate","")));
         String localDoc=p.optString("localDocumentPath","");
-        if(!localDoc.isEmpty()){Button open=btn("📎 ABRIR DOCUMENTO ORIGINAL",true);open.setOnClickListener(v->openArchivedDocument(localDoc,"pdf"));l.addView(open,new LinearLayout.LayoutParams(-1,dp(58)));}
+        if(!localDoc.isEmpty()){Button open=btn("📎 ABRIR DOCUMENTO ORIGINAL",true);open.setOnClickListener(v->openArchivedDocument(localDoc,mime(localDoc)));l.addView(open,new LinearLayout.LayoutParams(-1,dp(58)));}
+        if("PROPUESTA".equalsIgnoreCase(p.optString("documentStatus","")))addRead(l,"Válida para contratar hasta",p.optString("proposalValidUntil",""));
+        else addRead(l,"Fecha de emisión",p.optString("issueDate",""));
         if(decesos){
             addRead(l,"Capital de decesos",p.optString("capital",""));
             addRead(l,"Total decesos",p.optString("decesos",""));
@@ -294,10 +413,10 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
-    private void policies(){shell("Pólizas","Pólizas Ocaso guardadas");JSONArray a=clientsData();boolean any=false;for(int i=0;i<a.length();i++){JSONObject c=a.optJSONObject(i);if(c==null)continue;JSONArray ps=c.optJSONArray("policies");if(ps==null)continue;for(int j=0;j<ps.length();j++){JSONObject p=ps.optJSONObject(j);if(p==null)continue;any=true;Button b=btn("▣ "+p.optString("type","OCASO")+" · "+p.optString("number","—")+System.lineSeparator()+clientKey(c),false);b.setOnClickListener(v->policyDetail(p));body.addView(b,new LinearLayout.LayoutParams(-1,dp(72)));}}if(!any)body.addView(tv("No hay pólizas guardadas.",15,MUTED,false));Button scan=btn("📄 SUBIR PÓLIZA PDF",true);scan.setOnClickListener(v->choosePdf());body.addView(scan,new LinearLayout.LayoutParams(-1,dp(60)));Button cameraPolicy=btn("📷 FOTOGRAFIAR PÓLIZA · VARIAS PÁGINAS",true);cameraPolicy.setOnClickListener(v->{policyPageUris.clear();policyPageBitmaps.clear();policyCameraFlow=true;startPolicyPageCamera();});body.addView(cameraPolicy,new LinearLayout.LayoutParams(-1,dp(64)));}
+    private void policies(){shell("Pólizas","Pólizas Ocaso guardadas");JSONArray a=clientsData();boolean any=false;for(int i=0;i<a.length();i++){JSONObject c=a.optJSONObject(i);if(c==null)continue;JSONArray ps=c.optJSONArray("policies");if(ps==null)continue;for(int j=0;j<ps.length();j++){JSONObject p=ps.optJSONObject(j);if(p==null)continue;any=true;String status="PROPUESTA".equalsIgnoreCase(p.optString("documentStatus",""))?"Propuesta pendiente":"Póliza";Button b=btn("▣ "+status+" · "+p.optString("number","—")+System.lineSeparator()+clientKey(c),false);b.setOnClickListener(v->policyDetail(p));body.addView(b,new LinearLayout.LayoutParams(-1,dp(72)));}}if(!any)body.addView(tv("No hay pólizas guardadas.",15,MUTED,false));Button scan=btn("📄 SUBIR PÓLIZA PDF",true);scan.setOnClickListener(v->choosePdf());body.addView(scan,new LinearLayout.LayoutParams(-1,dp(60)));Button cameraPolicy=btn("📷 FOTOGRAFIAR PÓLIZA · VARIAS PÁGINAS",true);cameraPolicy.setOnClickListener(v->{policyPageUris.clear();policyPageBitmaps.clear();policyCameraFlow=true;startPolicyPageCamera();});body.addView(cameraPolicy,new LinearLayout.LayoutParams(-1,dp(64)));}
 
     private void ocrPage(){shell("OCR","Primero revisa el documento; después procesa y acepta los datos");body.addView(tv("1 · DOCUMENTO",18,BLUE,true));body.addView(tv("El archivo NO se guarda todavía. Primero comprueba que es el documento correcto.",14,MUTED,false));LinearLayout preview=col();preview.setBackground(box(Color.WHITE,16));body.addView(preview);renderPreview(preview);
-        LinearLayout r=new LinearLayout(this);Button front=btn("📷 Tomar anverso",true),back=btn("↩️ Tomar reverso",false);r.addView(front,new LinearLayout.LayoutParams(0,dp(58),1));r.addView(back,new LinearLayout.LayoutParams(0,dp(58),1));body.addView(r);front.setOnClickListener(v->{side=1;takePhoto();});back.setOnClickListener(v->{side=2;takePhoto();});
+        LinearLayout r=new LinearLayout(this);Button front=btn("📷 Tomar anverso",true),back=btn("↩️ Tomar reverso",false);r.addView(front,new LinearLayout.LayoutParams(0,dp(58),1));r.addView(back,new LinearLayout.LayoutParams(0,dp(58),1));body.addView(r);front.setOnClickListener(v->{if(!awaitingDniBack)resetDniIntake();side=1;takePhoto();});back.setOnClickListener(v->{side=2;takePhoto();});
         LinearLayout r2=new LinearLayout(this);Button img=btn("🖼️ Elegir JPEG/JPG",false),pdf=btn("📄 Elegir PDF",false);r2.addView(img,new LinearLayout.LayoutParams(0,dp(58),1));r2.addView(pdf,new LinearLayout.LayoutParams(0,dp(58),1));body.addView(r2);img.setOnClickListener(v->chooseImage());pdf.setOnClickListener(v->choosePdf());
         Button process=btn("▶ PROCESAR OCR",true);process.setOnClickListener(v->processCurrentDocument());body.addView(process,new LinearLayout.LayoutParams(-1,dp(62)));
         if(documentKind==0)body.addView(tv("Selecciona o fotografía un documento para continuar.",14,MUTED,false));
@@ -305,7 +424,7 @@ public class MainActivityV2 extends FragmentActivity {
 
     private void renderPreview(LinearLayout container){if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);container.addView(iv,new LinearLayout.LayoutParams(-1,dp(360)));container.addView(tv(documentKind==2?"Vista previa: primera página del PDF":"Vista previa: imagen original",14,GREEN,true));}else container.addView(tv("Aún no has seleccionado ningún documento.",15,MUTED,false));}
 
-    private void takePhoto(){if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.CAMERA},CAMERA);return;}try{File f=new File(getExternalFilesDir("captures"),"scan_"+System.currentTimeMillis()+".jpg");f.getParentFile().mkdirs();cameraUri=FileProvider.getUriForFile(this,getPackageName()+".fileprovider",f);Intent i=new Intent(MediaStore.ACTION_IMAGE_CAPTURE);i.putExtra(MediaStore.EXTRA_OUTPUT,cameraUri);i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivityForResult(i,CAMERA);}catch(Exception e){Toast.makeText(this,"No se pudo abrir la cámara",Toast.LENGTH_LONG).show();}}
+    private void takePhoto(){if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.CAMERA},CAMERA);return;}try{File f=new File(getFilesDir(),"captures/scan_"+System.currentTimeMillis()+".jpg");File parent=f.getParentFile();if(parent!=null&&!parent.exists()&&!parent.mkdirs())throw new IOException("No se pudo crear la carpeta privada");cameraUri=FileProvider.getUriForFile(this,getPackageName()+".fileprovider",f);Intent i=new Intent(MediaStore.ACTION_IMAGE_CAPTURE);i.putExtra(MediaStore.EXTRA_OUTPUT,cameraUri);i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivityForResult(i,CAMERA);}catch(Exception e){Toast.makeText(this,"No se pudo abrir la cámara",Toast.LENGTH_LONG).show();}}
 
 
 
@@ -361,17 +480,18 @@ public class MainActivityV2 extends FragmentActivity {
                 if(cameraUri==null)throw new IOException("No se recibió la foto");
                 Bitmap page=loadPolicyPageForOcr(cameraUri);policyPageUris.add(cameraUri);policyPageBitmaps.add(page);policyCameraFlow=true;askPolicyPageNext();return;
             }
-            if(request==PDF){Uri u=data==null?null:data.getData();if(u==null)return;documentUri=u;documentKind=2;previewBitmap=renderPdfFirstPage(u);currentImagePath=u.toString();ocrPage();return;}
+            if(request==PDF){Uri u=data==null?null:data.getData();if(u==null)return;resetDniIntake();documentUri=u;documentKind=2;previewBitmap=renderPdfFirstPage(u);currentImagePath=u.toString();ocrPage();return;}
             if(request==IMAGE && data!=null && data.getClipData()!=null){
                 int n=data.getClipData().getItemCount();
-                if(n>=2){Uri f=data.getClipData().getItemAt(0).getUri();Uri b=data.getClipData().getItemAt(1).getUri();frontBitmap=loadBitmap(f);backBitmap=loadBitmap(b);frontImagePath=f.toString();backImagePath=b.toString();currentBitmap=frontBitmap;previewBitmap=frontBitmap;documentKind=1;reviewDniPair();return;}
+                if(n>=2){resetDniIntake();Uri f=data.getClipData().getItemAt(0).getUri();Uri b=data.getClipData().getItemAt(1).getUri();frontBitmap=loadBitmap(f);backBitmap=loadBitmap(b);frontImagePath=f.toString();backImagePath=b.toString();currentBitmap=frontBitmap;previewBitmap=frontBitmap;documentUri=f;documentKind=1;reviewDniPair();return;}
             }
             Uri u=request==CAMERA?cameraUri:(data==null?null:data.getData());if(u==null)return;
+            if(request==IMAGE&&!awaitingDniBack)resetDniIntake();
             documentUri=u;documentKind=1;currentBitmap=loadBitmap(u);previewBitmap=currentBitmap;currentImagePath=u.toString();
             if(request==CAMERA){if(side==2){backBitmap=currentBitmap;backImagePath=currentImagePath;}else{frontBitmap=currentBitmap;frontImagePath=currentImagePath;}}
             else if(frontBitmap==null){frontBitmap=currentBitmap;frontImagePath=currentImagePath;}
             else {backBitmap=currentBitmap;backImagePath=currentImagePath;}
-            if(frontBitmap!=null && backBitmap==null){Toast.makeText(this,"Anverso cargado. Ahora selecciona el REVERSO.",Toast.LENGTH_LONG).show();ocrPage();}
+            if(frontBitmap!=null && backBitmap==null){Toast.makeText(this,"Documento cargado. Pulsa PROCESAR OCR para identificarlo.",Toast.LENGTH_LONG).show();ocrPage();}
             else {reviewDniPair();}
         }catch(Exception e){Toast.makeText(this,"No se pudo cargar el documento: "+e.getMessage(),Toast.LENGTH_LONG).show();}
     }
@@ -444,7 +564,22 @@ public class MainActivityV2 extends FragmentActivity {
 
     private void processDniPairOcr(){
         TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS); if(frontBitmap==null||backBitmap==null){r.close();return;}
-        r.process(InputImage.fromBitmap(frontBitmap,0)).addOnSuccessListener(f->{frontText=f==null?"":f.getText();r.process(InputImage.fromBitmap(backBitmap,0)).addOnSuccessListener(b->{backText=b==null?"":b.getText();currentBitmap=frontBitmap;previewBitmap=frontBitmap;currentImagePath=frontImagePath;r.close();showIdentityReview(parseEssentialRobust(frontText+"\\n"+backText));}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR reverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR anverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});
+        r.process(InputImage.fromBitmap(frontBitmap,0)).addOnSuccessListener(f->{
+            frontText=f==null?"":f.getText();
+            r.process(InputImage.fromBitmap(backBitmap,0)).addOnSuccessListener(b->{
+                backText=b==null?"":b.getText();
+                DocumentType first=DocumentClassifier.classify(frontText).type,second=DocumentClassifier.classify(backText).type;
+                if(first==DocumentType.DNI_BACK&&second==DocumentType.DNI_FRONT){
+                    String text=frontText;frontText=backText;backText=text;
+                    Bitmap image=frontBitmap;frontBitmap=backBitmap;backBitmap=image;
+                    String path=frontImagePath;frontImagePath=backImagePath;backImagePath=path;
+                }
+                r.close();
+                if(DocumentClassifier.classify(frontText).type!=DocumentType.DNI_FRONT||DocumentClassifier.classify(backText).type!=DocumentType.DNI_BACK){Toast.makeText(this,"No se han reconocido las dos caras del DNI/NIE. Comprueba el orden y la nitidez.",Toast.LENGTH_LONG).show();return;}
+                dniPairConfirmed=true;awaitingDniBack=false;currentBitmap=frontBitmap;previewBitmap=frontBitmap;currentImagePath=frontImagePath;
+                showIdentityReview(parseEssentialRobust(frontText+"\n"+backText));
+            }).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR reverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});
+        }).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR anverso: "+e.getMessage(),Toast.LENGTH_LONG).show();});
     }
 
 
@@ -475,10 +610,62 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
-    private void processCurrentDocument(){if(documentUri==null||documentKind==0){Toast.makeText(this,"Primero selecciona un documento.",Toast.LENGTH_LONG).show();return;}if(documentKind==2){PdfOcrHelper.process(this,documentUri,new PdfOcrHelper.Callback(){public void onSuccess(String text){runOnUiThread(()->showPolicyReview(OcasoPolicyParser.parse(text),text));}public void onError(Exception e){runOnUiThread(()->Toast.makeText(MainActivityV2.this,"PDF: "+e.getMessage(),Toast.LENGTH_LONG).show());}});}else processImage();}
+    private void processCurrentDocument(){
+        if(documentUri==null||documentKind==0){Toast.makeText(this,"Primero selecciona un documento.",Toast.LENGTH_LONG).show();return;}
+        if(documentKind==2){
+            PdfOcrHelper.process(this,documentUri,new PdfOcrHelper.Callback(){
+                public void onSuccess(String text){runOnUiThread(()->routeRecognizedDocument(text));}
+                public void onError(Exception e){runOnUiThread(()->Toast.makeText(MainActivityV2.this,"PDF: "+e.getMessage(),Toast.LENGTH_LONG).show());}
+            });
+        }else processImage();
+    }
+
+    /** Clasifica el texto antes de abrir el formulario correcto; nunca guarda a ciegas. */
+    private void routeRecognizedDocument(String text){
+        if(!authenticated)return;
+        String raw=text==null?"":text.trim();
+        DocumentClassifier.Result result=DocumentClassifier.classify(raw);
+        if(documentKind==2&&(result.type==DocumentType.DNI_FRONT||result.type==DocumentType.DNI_BACK)){
+            if(!pdfContainsBothDniSides(raw)){showMissingDniSide("El PDF debe incluir el anverso y el reverso del DNI/NIE.");return;}
+            frontText=raw;backText=raw;dniPairConfirmed=true;showIdentityReview(parseEssentialRobust(raw));return;
+        }
+        if(awaitingDniBack){
+            if(result.type!=DocumentType.DNI_BACK){Toast.makeText(this,"No se ha reconocido el reverso. Carga el reverso del DNI/NIE para continuar.",Toast.LENGTH_LONG).show();return;}
+            backText=raw;backBitmap=currentBitmap;backImagePath=currentImagePath;awaitingDniBack=false;dniPairConfirmed=true;
+            showIdentityReview(parseEssentialRobust(frontText+"\n"+backText));return;
+        }
+        if(result.type==DocumentType.POLICY){
+            showPolicyReview(OcasoPolicyParser.parse(raw),raw);
+        }else if(result.type==DocumentType.DNI_FRONT){
+            frontText=raw;frontBitmap=currentBitmap;frontImagePath=currentImagePath;awaitingDniBack=true;side=2;
+            Toast.makeText(this,"Anverso reconocido. Selecciona o fotografía el reverso; comprobaremos ambas caras antes de guardar.",Toast.LENGTH_LONG).show();
+            ocrPage();
+        }else if(result.type==DocumentType.DNI_BACK){
+            Toast.makeText(this,"Reverso reconocido. Para crear el cliente también necesitas el ANVERSO del DNI/NIE.",Toast.LENGTH_LONG).show();
+        }else{
+            String reason=result.type==DocumentType.RECEIPT?"El documento parece un recibo, no una póliza.":"No se ha podido distinguir con seguridad entre DNI/NIE y póliza.";
+            new AlertDialog.Builder(this).setTitle("Documento no identificado")
+                .setMessage(reason+"\n\nPrueba con una imagen más nítida o selecciona el anverso y reverso del DNI/NIE.")
+                .setPositiveButton("Volver al OCR",(d,w)->ocrPage()).setNegativeButton("Cerrar",null).show();
+        }
+    }
+
+    private boolean pdfContainsBothDniSides(String text){
+        String[] pages=text.split("(?m)---\\s*[Pp][áa]gina\\s+\\d+\\s*---");boolean front=false,back=false;
+        for(String page:pages){
+            String upper=page.toUpperCase(Locale.ROOT);DocumentType type=DocumentClassifier.classify(page).type;
+            boolean frontMarkers=upper.contains("APELLIDOS")&&upper.contains("NOMBRE")&&(upper.contains("DOCUMENTO NACIONAL")||Pattern.compile("\\b[0-9]{8}[A-Z]\\b").matcher(upper).find());
+            boolean backMarkers=upper.contains("IDESP")||upper.contains("<<<<")||upper.contains("LUGAR DE NACIMIENTO");
+            front|=type==DocumentType.DNI_FRONT||frontMarkers;back|=type==DocumentType.DNI_BACK||backMarkers;
+        }
+        return front&&back;
+    }
+
+    private void showMissingDniSide(String message){new AlertDialog.Builder(this).setTitle("DNI/NIE incompleto").setMessage(message+"\n\nNo se guardará el cliente hasta leer las dos caras.").setPositiveButton("Volver al OCR",(d,w)->ocrPage()).setNegativeButton("Cerrar",null).show();}
+    private void resetDniIntake(){frontBitmap=null;backBitmap=null;frontText="";backText="";frontImagePath="";backImagePath="";awaitingDniBack=false;dniPairConfirmed=false;}
     private void processImage(){
         if(currentBitmap==null){Toast.makeText(this,"Primero selecciona un JPEG válido.",Toast.LENGTH_LONG).show();return;}
-        TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);r.process(InputImage.fromBitmap(currentBitmap,0)).addOnSuccessListener(t->{String text=t.getText()==null?"":t.getText();if(side==2)backText=text;else frontText=text;r.close();showIdentityReview(parseEssentialRobust(frontText+"\\n"+backText));}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR: "+e.getMessage(),Toast.LENGTH_LONG).show();});
+        TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);r.process(InputImage.fromBitmap(currentBitmap,0)).addOnSuccessListener(t->{String text=t.getText()==null?"":t.getText();r.close();routeRecognizedDocument(text);}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR: "+e.getMessage(),Toast.LENGTH_LONG).show();});
     }
 
 
@@ -509,15 +696,19 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
-    private void showIdentityReview(JSONObject x){shell("Revisión DNI/NIE","Comprueba los datos antes de guardar");body.addView(tv("2 · DOCUMENTO LEÍDO",18,BLUE,true));if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);body.addView(iv,new LinearLayout.LayoutParams(-1,dp(300)));}body.addView(tv("3 · DATOS DETECTADOS",18,BLUE,true));fullNameE=input("Nombre y apellidos");dniE=input("DNI/NIE");birthE=input("Fecha de nacimiento");addressE=input("Dirección");phoneE=input("Teléfono (lo puedes añadir tú)");fullNameE.setText(x.optString("fullName",""));dniE.setText(x.optString("identityNumber",""));birthE.setText(x.optString("birthDate",""));addressE.setText(x.optString("address",""));confidenceTv=tv("Confianza de lectura: "+x.optInt("confidence",0)+"% · Comprueba visualmente el documento.",14,MUTED,false);body.addView(confidenceTv);for(EditText e:new EditText[]{fullNameE,dniE,birthE,addressE,phoneE})body.addView(e,new LinearLayout.LayoutParams(-1,dp(54)));Button accept=btn("✅ ACEPTAR DATOS Y GUARDAR",true),reject=btn("❌ RECHAZAR / VOLVER A DOCUMENTO",false);body.addView(accept,new LinearLayout.LayoutParams(-1,dp(62)));body.addView(reject,new LinearLayout.LayoutParams(-1,dp(58)));accept.setOnClickListener(v->saveIdentity());reject.setOnClickListener(v->ocrPage());}
+    private void showIdentityReview(JSONObject x){if(!authenticated)return;shell("Revisión DNI/NIE","Comprueba los datos antes de guardar");body.addView(tv("2 · DOCUMENTO LEÍDO",18,BLUE,true));if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);body.addView(iv,new LinearLayout.LayoutParams(-1,dp(300)));}body.addView(tv("3 · DATOS DETECTADOS",18,BLUE,true));fullNameE=input("Nombre y apellidos");dniE=input("DNI/NIE");birthE=input("Fecha de nacimiento");addressE=input("Dirección");phoneE=input("Teléfono (lo puedes añadir tú)");fullNameE.setText(x.optString("fullName",""));dniE.setText(x.optString("identityNumber",""));birthE.setText(x.optString("birthDate",""));addressE.setText(x.optString("address",""));confidenceTv=tv("Confianza de lectura: "+x.optInt("confidence",0)+"% · Comprueba visualmente el documento.",14,MUTED,false);body.addView(confidenceTv);for(EditText e:new EditText[]{fullNameE,dniE,birthE,addressE,phoneE})body.addView(e,new LinearLayout.LayoutParams(-1,dp(54)));Button accept=btn("✅ ACEPTAR DATOS Y GUARDAR",true),reject=btn("❌ RECHAZAR / VOLVER A DOCUMENTO",false);body.addView(accept,new LinearLayout.LayoutParams(-1,dp(62)));body.addView(reject,new LinearLayout.LayoutParams(-1,dp(58)));accept.setOnClickListener(v->saveIdentity());reject.setOnClickListener(v->ocrPage());}
 
     private void saveIdentity(){
         try{
             String full=fullNameE.getText().toString().trim(),id=dniE.getText().toString().trim().toUpperCase(Locale.ROOT),birth=birthE.getText().toString().trim();
+            if(!dniPairConfirmed||frontText.trim().isEmpty()||backText.trim().isEmpty()){Toast.makeText(this,"Para guardar el cliente hacen falta el anverso y el reverso del DNI/NIE.",Toast.LENGTH_LONG).show();return;}
             if(!isValidIdentity(id)){Toast.makeText(this,"DNI/NIE no válido. Revísalo antes de guardar.",Toast.LENGTH_LONG).show();return;}
-            if(!validDate(birth)){Toast.makeText(this,"Fecha de nacimiento no válida.",Toast.LENGTH_LONG).show();return;}
             JSONObject x=findClientById(id);if(x==null)x=new JSONObject();
-            x.put("holder",full);x.put("name",full);x.put("surname","");x.put("identityNumber",id);x.put("birthDate",birth);x.put("address",addressE.getText().toString().trim());x.put("phone",phoneE.getText().toString().trim());
+            if(full.isEmpty())full=clientKey(x).equals("Sin nombre")?"":clientKey(x);
+            if(full.isEmpty()){Toast.makeText(this,"Falta el nombre del cliente. Completa el campo antes de guardar.",Toast.LENGTH_LONG).show();return;}
+            if(!validDate(birth)){String existingBirth=x.optString("birthDate","").trim();if(validDate(existingBirth))birth=existingBirth;else{Toast.makeText(this,"Fecha de nacimiento no válida. Revísala antes de guardar.",Toast.LENGTH_LONG).show();return;}}
+            x.put("holder",full);x.put("name",full);x.put("surname","");x.put("identityNumber",id);x.put("birthDate",birth);
+            String address=addressE.getText().toString().trim(),phone=phoneE.getText().toString().trim();if(!address.isEmpty())x.put("address",address);if(!phone.isEmpty())x.put("phone",phone);
             if(!x.has("policies"))x.put("policies",new JSONArray());
             if(frontImagePath!=null&&!frontImagePath.isEmpty()){
                 try{String p=copyDocumentToArchive(Uri.parse(frontImagePath),"dni_front","jpg");addArchivedDocument(x,p,frontImagePath,"DNI/NIE · anverso","image","");}catch(Exception ignored){}
@@ -525,7 +716,10 @@ public class MainActivityV2 extends FragmentActivity {
             if(backImagePath!=null&&!backImagePath.isEmpty()){
                 try{String p=copyDocumentToArchive(Uri.parse(backImagePath),"dni_back","jpg");addArchivedDocument(x,p,backImagePath,"DNI/NIE · reverso","image","");}catch(Exception ignored){}
             }
-            upsertClient(x);Toast.makeText(this,"Cliente guardado con sus documentos.",Toast.LENGTH_LONG).show();detail(x);
+            if(documentKind==2&&documentUri!=null){
+                try{String source=documentUri.toString();String p=copyDocumentToArchive(documentUri,"dni_document","pdf");addArchivedDocument(x,p,source,"DNI/NIE · PDF","pdf","");}catch(Exception e){Toast.makeText(this,"Aviso: no se pudo archivar el PDF de identidad.",Toast.LENGTH_LONG).show();}
+            }
+            if(!upsertClient(x))return;Toast.makeText(this,"Cliente guardado con sus documentos.",Toast.LENGTH_LONG).show();detail(x);
         }catch(Exception e){Toast.makeText(this,"No se pudo guardar: "+e.getMessage(),Toast.LENGTH_LONG).show();}
     }
 
@@ -547,13 +741,16 @@ public class MainActivityV2 extends FragmentActivity {
 
 
     private void showPolicyReview(JSONObject p,String raw){
-        shell("Revisión de póliza","Comprueba los datos del tomador antes de guardar");
+        if(!authenticated)return;
+        boolean proposal="PROPUESTA".equalsIgnoreCase(p.optString("documentStatus",""));
+        shell(proposal?"Revisión de propuesta":"Revisión de póliza",proposal?"Comprueba antes de asociarla como póliza formalizada":"Comprueba los datos del tomador antes de guardar");
         body.addView(tv("DATOS DEL CLIENTE",18,BLUE,true));
         int confidence=p.optInt("confidence",p.optInt("ocrConfidence",0));
         body.addView(tv("Confianza de lectura: "+confidence+"%",14,confidence>=85?GREEN:(confidence>=60?TEXT:Color.rgb(180,80,40)),true));
-        body.addView(tv("Solo se muestran los datos esenciales. El documento completo se archivará en el cliente.",13,MUTED,false));
+        String validity=p.optString("proposalValidUntil","");
+        body.addView(tv(proposal?"El documento indica que es una propuesta todavía no formalizada."+(validity.isEmpty()?"":" Válida para contratar hasta "+validity+".")+" Revísalo antes de archivarlo.":"Solo se muestran los datos esenciales. El documento completo se archivará en el cliente.",13,proposal?Color.rgb(180,80,40):MUTED,false));
 
-        policyNumberE=input("Número de póliza");
+        policyNumberE=input(proposal?"Número de referencia":"Número de póliza");
         holderE=input("Nombre y apellidos");
         policyDniE=input("DNI/NIE");
         policyAddressE=input("Dirección");
@@ -575,12 +772,15 @@ public class MainActivityV2 extends FragmentActivity {
         decesosE.setText(p.optString("decesos",""));
         decesosLeveladaE.setText(p.optString("decesosLevelada",""));
 
-        addPolicyField("NÚMERO DE PÓLIZA",null,policyNumberE);
+        addPolicyField(proposal?"NÚMERO DE REFERENCIA":"NÚMERO DE PÓLIZA",null,policyNumberE);
         addPolicyField("NOMBRE Y APELLIDOS",null,holderE);
         addPolicyField("DNI / NIE",null,policyDniE);
-        EditText birth=input("Fecha de nacimiento");
-        birth.setText(p.optString("birthDate",""));
-        addPolicyField("FECHA DE NACIMIENTO",null,birth);
+        policyBirthE=input("Fecha de nacimiento");
+        policyBirthE.setText(p.optString("birthDate",""));
+        addPolicyField("FECHA DE NACIMIENTO",null,policyBirthE);
+        policyExpiryE=input("Vencimiento dd/MM/aaaa (opcional)");
+        policyExpiryE.setText(p.optString("expiry",""));
+        if(!proposal)addPolicyField("FECHA DE VENCIMIENTO",null,policyExpiryE);
         addPolicyField("DIRECCIÓN",null,policyAddressE);
         addPolicyField("TELÉFONO",null,policyPhoneE);
 
@@ -695,12 +895,21 @@ public class MainActivityV2 extends FragmentActivity {
             String address=policyAddressE.getText().toString().trim(); if(address.isEmpty()) address=parsed.optString("address","").trim();
             String phone=policyPhoneE.getText().toString().trim(); if(phone.isEmpty()) phone=parsed.optString("phone","").trim();
             String email=policyEmailE.getText().toString().trim(); if(email.isEmpty()) email=parsed.optString("email","").trim();
+            String birth=policyBirthE.getText().toString().trim(); if(birth.isEmpty()) birth=parsed.optString("birthDate","").trim();
+            String expiry="PROPUESTA".equalsIgnoreCase(parsed.optString("documentStatus",""))?"":policyExpiryE.getText().toString().trim();
+            if(expiry.isEmpty()&&policyExpiryE!=null&&!"PROPUESTA".equalsIgnoreCase(parsed.optString("documentStatus","")))expiry=parsed.optString("expiry","").trim();
+            if(!expiry.isEmpty()&&!validDate(expiry)){Toast.makeText(this,"La fecha de vencimiento debe tener formato dd/MM/aaaa y ser válida.",Toast.LENGTH_LONG).show();return;}
+            JSONObject matched=findClientForPolicy(id,holder,phone,email);
+            boolean matchedExactIdentity=matched!=null&&normalizeSearch(id).equals(normalizeSearch(matched.optString("identityNumber",matched.optString("holderDni",""))));
+            if(!id.isEmpty()&&!matchedExactIdentity&&hasConflictingClientIdentity(id,phone,email)){Toast.makeText(this,"El DNI/NIE no coincide con la ficha asociada a ese teléfono o email. Revísalo para no mezclar clientes.",Toast.LENGTH_LONG).show();return;}
+            if(holder.isEmpty()&&matched!=null)holder=clientKey(matched);
             if(number.isEmpty()) number=parsed.optString("number","").trim();
             if(number.isEmpty()){Toast.makeText(this,"El número de póliza es obligatorio.",Toast.LENGTH_LONG).show();return;}
             if(holder.isEmpty()){Toast.makeText(this,"No se ha podido identificar al tomador. Revísalo antes de guardar.",Toast.LENGTH_LONG).show();return;}
             if(!id.isEmpty()&&!isValidIdentity(id)){Toast.makeText(this,"DNI/NIE no válido. Revísalo antes de guardar.",Toast.LENGTH_LONG).show();return;}
             String product=parsed.optString("policyType",currentPolicyProduct(raw));
-            JSONObject c=findClientForPolicy(id,holder,phone,email);
+            JSONObject c=matched;
+            if(c==null&&id.isEmpty()&&hasAmbiguousNameMatches(holder)){Toast.makeText(this,"Hay varios clientes con ese nombre. Añade o revisa el DNI/NIE, teléfono o email para asociar la póliza sin riesgo de duplicar o mezclar fichas.",Toast.LENGTH_LONG).show();return;}
             boolean newClient=c==null;
             if(c==null)c=new JSONObject();
             if(!c.has("documentPhotos")) c.put("documentPhotos",new JSONArray());
@@ -714,23 +923,29 @@ public class MainActivityV2 extends FragmentActivity {
             c.put("documentPhotos",clientDocs);
             c.put("holder",holder);c.put("name",holder);c.put("surname","");
             if(!id.isEmpty())c.put("identityNumber",id); if(!address.isEmpty())c.put("address",address); if(!phone.isEmpty())c.put("phone",phone); if(!email.isEmpty())c.put("email",email);
+            if(!birth.isEmpty()&&c.optString("birthDate","").trim().isEmpty())c.put("birthDate",birth);
             JSONArray ps=c.optJSONArray("policies");if(ps==null)ps=new JSONArray();
             JSONObject pol=new JSONObject();
-            pol.put("type","OCASO");pol.put("policyType",product);pol.put("number",number);pol.put("holder",holder);pol.put("identityNumber",id);pol.put("address",address);pol.put("phone",phone);pol.put("email",email);pol.put("receipt",receiptE.getText().toString().trim());pol.put("capital",capitalE.getText().toString().trim());
+            pol.put("id",UUID.randomUUID().toString());pol.put("type","OCASO");pol.put("documentStatus",parsed.optString("documentStatus","POLIZA"));pol.put("policyType",product);pol.put("number",number);pol.put("issueDate",parsed.optString("issueDate",""));pol.put("expiry",expiry);pol.put("validityDate",expiry);pol.put("proposalValidUntil",parsed.optString("proposalValidUntil",""));pol.put("holder",holder);pol.put("identityNumber",id);pol.put("birthDate",birth);pol.put("address",address);pol.put("phone",phone);pol.put("email",email);pol.put("receipt",receiptE.getText().toString().trim());pol.put("capital",capitalE.getText().toString().trim());
             if("Decesos".equalsIgnoreCase(product)){pol.put("decesos",decesosE.getText().toString().trim());pol.put("decesosLevelada",decesosLeveladaE.getText().toString().trim());}else{pol.put("decesos","");pol.put("decesosLevelada","");}
             pol.put("insured",insured==null?new JSONArray():insured);pol.put("documentUri",documentUri==null?"":documentUri.toString());pol.put("ocrText",raw);pol.put("ocrConfidence",parsed.optInt("confidence",0));pol.put("ocrWarnings",parsed.optJSONArray("warnings"));
             String localPdf="";
             if(documentUri!=null){
-                try{localPdf=copyDocumentToArchive(documentUri,"policy_"+(number.isEmpty()?"document":number),"pdf");}catch(Exception e){Toast.makeText(this,"Aviso: no se pudo archivar el PDF localmente.",Toast.LENGTH_LONG).show();}
+                try{localPdf=copyDocumentToArchive(documentUri,"policy_"+(number.isEmpty()?"document":number),documentKind==2?"pdf":"jpg");}catch(Exception e){Toast.makeText(this,"Aviso: no se pudo archivar el documento localmente.",Toast.LENGTH_LONG).show();}
             }
             if(!localPdf.isEmpty())pol.put("localDocumentPath",localPdf);
-            boolean replaced=false;for(int i=0;i<ps.length();i++){JSONObject old=ps.optJSONObject(i);if(old!=null&&number.equals(old.optString("number",""))){
+            boolean replaced=false;for(int i=0;i<ps.length();i++){JSONObject old=ps.optJSONObject(i);if(old!=null&&!normalizeSearch(number).isEmpty()&&normalizeSearch(number).equals(normalizeSearch(old.optString("number","")))){
                 if(localPdf.isEmpty()&&!old.optString("localDocumentPath","").isEmpty())pol.put("localDocumentPath",old.optString("localDocumentPath",""));
                 ps.put(i,pol);replaced=true;break;
             }}
             if(!replaced)ps.put(pol);c.put("policies",ps);
-            if(!localPdf.isEmpty())addArchivedDocument(c,localPdf,documentUri==null?"":documentUri.toString(),"Póliza OCASO · "+number,"pdf",number);
-            upsertClient(c);
+            if(!localPdf.isEmpty())addArchivedDocument(c,localPdf,documentUri==null?"":documentUri.toString(),"Póliza OCASO · "+number,documentKind==2?"pdf":"image",number);
+            if(!upsertClient(c))return;
+            if(!expiry.isEmpty()){
+                ExpiryAlarmScheduler.schedulePolicy(this,"local",pol);
+                if(android.os.Build.VERSION.SDK_INT>=33&&ContextCompat.checkSelfPermission(this,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},8106);
+            }
             Toast.makeText(this,newClient?"Nuevo cliente creado y póliza archivada.":"Póliza asociada al cliente y archivada.",Toast.LENGTH_LONG).show();
             detail(c);
         }catch(Exception e){Toast.makeText(this,"No se pudo guardar la póliza: "+e.getMessage(),Toast.LENGTH_LONG).show();}
@@ -856,7 +1071,7 @@ public class MainActivityV2 extends FragmentActivity {
 
     private String copyDocumentToArchive(Uri source, String prefix, String extension) throws Exception {
         if (source == null) return "";
-        File dir = new File(getExternalFilesDir("documents"), "clients");
+        File dir = new File(getFilesDir(), "client_documents");
         if (!dir.exists() && !dir.mkdirs()) throw new IOException("No se pudo crear el archivo de documentos");
         String ext = extension == null || extension.isEmpty() ? ".bin" : (extension.startsWith(".") ? extension : "." + extension);
         File out = new File(dir, prefix + "_" + System.currentTimeMillis() + ext);
@@ -890,31 +1105,34 @@ public class MainActivityV2 extends FragmentActivity {
     private JSONObject findClientForPolicy(String id, String holder, String phone, String email) {
         JSONObject c = findClientById(id);
         if (c != null) return c;
-        String q = normalizeSearch(holder);
-        if (!q.isEmpty()) {
-            JSONArray a = clientsData();
-            for (int i = 0; i < a.length(); i++) {
-                JSONObject x = a.optJSONObject(i);
-                if (x != null && q.equals(normalizeSearch(clientKey(x)))) return x;
-            }
+        JSONArray a = clientsData();
+        boolean identityProvided=id!=null&&!id.trim().isEmpty();
+        if (email != null && !email.trim().isEmpty()) {
+            String e = email.trim().toLowerCase(Locale.ROOT);
+            JSONObject unique=null;boolean duplicate=false;for (int i = 0; i < a.length(); i++) {JSONObject x = a.optJSONObject(i);if (x != null && e.equals(x.optString("email", "").trim().toLowerCase(Locale.ROOT))&&(!identityProvided||x.optString("identityNumber",x.optString("holderDni","")).trim().isEmpty())){if(unique!=null){duplicate=true;break;}unique=x;}}if(unique!=null&&!duplicate)return unique;
         }
         if (phone != null && !phone.trim().isEmpty()) {
-            JSONArray a = clientsData();
             String p = normalizeSearch(phone);
+            JSONObject unique=null;boolean duplicate=false;
             for (int i = 0; i < a.length(); i++) {
                 JSONObject x = a.optJSONObject(i);
-                if (x != null && p.equals(normalizeSearch(x.optString("phone", "")))) return x;
+                if (x != null && p.equals(normalizeSearch(x.optString("phone", "")))&&(!identityProvided||x.optString("identityNumber",x.optString("holderDni","")).trim().isEmpty())) {if(unique!=null){duplicate=true;break;}unique=x;}
             }
+            if(unique!=null&&!duplicate)return unique;
         }
-        if (email != null && !email.trim().isEmpty()) {
-            JSONArray a = clientsData();
-            String e = email.trim().toLowerCase(Locale.ROOT);
-            for (int i = 0; i < a.length(); i++) {
-                JSONObject x = a.optJSONObject(i);
-                if (x != null && e.equals(x.optString("email", "").trim().toLowerCase(Locale.ROOT))) return x;
-            }
-        }
-        return null;
+        String q=normalizeSearch(holder);JSONObject unique=null;
+        if(!q.isEmpty())for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&q.equals(normalizeSearch(clientKey(x)))&&(!identityProvided||x.optString("identityNumber",x.optString("holderDni","")).trim().isEmpty())){if(unique!=null)return null;unique=x;}}
+        return unique;
+    }
+    private boolean hasConflictingClientIdentity(String id,String phone,String email){
+        String identity=normalizeSearch(id),normalizedPhone=normalizeSearch(phone),normalizedEmail=email==null?"":email.trim().toLowerCase(Locale.ROOT);JSONArray a=clientsData();
+        for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x==null)continue;String oldId=normalizeSearch(x.optString("identityNumber",x.optString("holderDni","")));if(oldId.isEmpty()||oldId.equals(identity))continue;boolean sameEmail=!normalizedEmail.isEmpty()&&normalizedEmail.equals(x.optString("email","").trim().toLowerCase(Locale.ROOT));boolean samePhone=!normalizedPhone.isEmpty()&&normalizedPhone.equals(normalizeSearch(x.optString("phone","")));if(sameEmail||samePhone)return true;}
+        return false;
+    }
+    private boolean hasAmbiguousNameMatches(String holder){
+        String q=normalizeSearch(holder);if(q.isEmpty())return false;int matches=0;JSONArray a=clientsData();
+        for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&q.equals(normalizeSearch(clientKey(x)))&&++matches>1)return true;}
+        return false;
     }
     private void openArchivedDocument(String path, String type) {
         try {
@@ -952,9 +1170,31 @@ public class MainActivityV2 extends FragmentActivity {
         }
     }
 
-    private JSONObject findClientById(String id){if(id==null||id.isEmpty())return null;JSONArray a=clientsData();for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&id.equalsIgnoreCase(x.optString("identityNumber","")))return x;}return null;}
+    private JSONObject findClientById(String id){if(id==null||id.trim().isEmpty())return null;String key=normalizeSearch(id);JSONArray a=clientsData();for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&key.equals(normalizeSearch(x.optString("identityNumber",x.optString("holderDni","")))))return x;}return null;}
     private JSONObject findClientByName(String name){String q=normalizeSearch(name);if(q.isEmpty())return null;JSONArray a=clientsData();for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&normalizeSearch(clientKey(x)).equals(q))return x;}return null;}
-    private JSONArray clientsData(){try{String s=prefs.getString("rgapro_clients","");if(!s.isEmpty())return new JSONArray(s);}catch(Exception ignored){}return new JSONArray();}
-    private void upsertClient(JSONObject x){try{JSONArray a=clientsData();String id=x.optString("identityNumber","");String holder=x.optString("holder","");boolean replaced=false;for(int i=0;i<a.length();i++){JSONObject old=a.optJSONObject(i);if(old==null)continue;if (((!id.isEmpty()) && id.equalsIgnoreCase(old.optString("identityNumber", ""))) || ((!holder.isEmpty()) && normalizeSearch(holder).equals(normalizeSearch(old.optString("holder", ""))))) {a.put(i,x);replaced=true;break;}}if(!replaced)a.put(x);prefs.edit().putString("rgapro_clients",a.toString()).apply();}catch(Exception e){Toast.makeText(this,"No se pudo guardar: "+e.getMessage(),Toast.LENGTH_LONG).show();}}
-    private long daysUntil(String date){try{Date d=new SimpleDateFormat("dd/MM/yyyy",Locale.ROOT).parse(date);return Math.round((d.getTime()-System.currentTimeMillis())/86400000.0);}catch(Exception e){return Long.MIN_VALUE;}}
+    private JSONArray clientsData(){
+        clientStoreReadFailed=false;
+        try{String s=prefs.getString("rgapro_clients","");if(!s.isEmpty())return new JSONArray(s);}
+        catch(Exception e){clientStoreReadFailed=true;Toast.makeText(this,"No se pudo abrir la cartera cifrada. No se guardarán cambios para evitar perder datos.",Toast.LENGTH_LONG).show();}
+        return new JSONArray();
+    }
+    private boolean upsertClient(JSONObject x){
+        try{
+            JSONArray a=clientsData();if(clientStoreReadFailed)return false;
+            String id=x.optString("identityNumber",x.optString("holderDni","")).trim();String rawName=x.optString("holder","").trim();
+            if(rawName.isEmpty())rawName=(x.optString("name","")+" "+x.optString("surname","")).trim();
+            String holder=normalizeSearch(rawName);boolean replaced=false;
+            for(int i=0;i<a.length();i++){
+                JSONObject old=a.optJSONObject(i);if(old==null)continue;
+                String oldId=old.optString("identityNumber",old.optString("holderDni","")).trim();String oldRaw=old.optString("holder","").trim();
+                if(oldRaw.isEmpty())oldRaw=(old.optString("name","")+" "+old.optString("surname","")).trim();
+                String oldName=normalizeSearch(oldRaw);boolean sameIdentity=!id.isEmpty()&&!oldId.isEmpty()&&id.equalsIgnoreCase(oldId);
+                boolean safeNameMatch=!holder.isEmpty()&&holder.equals(oldName)&&(id.isEmpty()||oldId.isEmpty());
+                if(sameIdentity||safeNameMatch){a.put(i,x);replaced=true;break;}
+            }
+            if(!replaced)a.put(x);
+            prefs.edit().putString("rgapro_clients",a.toString()).apply();return true;
+        }catch(Exception e){Toast.makeText(this,"No se pudo guardar: "+e.getMessage(),Toast.LENGTH_LONG).show();return false;}
+    }
+    private long daysUntil(String date){try{SimpleDateFormat f=new SimpleDateFormat("dd/MM/yyyy",Locale.ROOT);f.setLenient(false);Date d=f.parse(date);Calendar day=Calendar.getInstance();day.setTime(d);day.set(Calendar.HOUR_OF_DAY,0);day.set(Calendar.MINUTE,0);day.set(Calendar.SECOND,0);day.set(Calendar.MILLISECOND,0);Calendar today=Calendar.getInstance();today.set(Calendar.HOUR_OF_DAY,0);today.set(Calendar.MINUTE,0);today.set(Calendar.SECOND,0);today.set(Calendar.MILLISECOND,0);return (day.getTimeInMillis()-today.getTimeInMillis())/86400000L;}catch(Exception e){return Long.MIN_VALUE;}}
 }

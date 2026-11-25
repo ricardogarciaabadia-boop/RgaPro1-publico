@@ -4,6 +4,7 @@ import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Build;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -32,6 +33,20 @@ public final class ExpiryAlarmScheduler {
                     JSONObject policy = policies.optJSONObject(i);
                     if (policy == null) continue;
                     schedulePolicy(context, user, policy);
+                }
+            }
+            // La interfaz actual guarda la cartera en rgapro_clients, fuera del
+            // almacén antiguo users_json. También programamos esas pólizas.
+            SharedPreferences localPrefs=context.getSharedPreferences("rgapro_local",Context.MODE_PRIVATE);
+            JSONArray clients = new JSONArray(SecureLocalDataStore.read(context,localPrefs,"rgapro_clients","[]"));
+            for (int i = 0; i < clients.length(); i++) {
+                JSONObject client = clients.optJSONObject(i);
+                JSONArray policies = client == null ? null : client.optJSONArray("policies");
+                if (policies == null) continue;
+                for (int j = 0; j < policies.length(); j++) {
+                    JSONObject policy = policies.optJSONObject(j);
+                    if (policy != null && !"PROPUESTA".equalsIgnoreCase(policy.optString("documentStatus", "")))
+                        schedulePolicy(context, "local", policy);
                 }
             }
         } catch (Exception ignored) {}
@@ -64,10 +79,11 @@ public final class ExpiryAlarmScheduler {
     }
 
     private static long parseDate(String value) {
-        try {
-            return new SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(value).getTime();
-        } catch (Exception e) {
-            return -1;
-        }
+        for (String pattern : new String[]{"dd/MM/yyyy", "yyyy-MM-dd"}) try {
+            SimpleDateFormat format = new SimpleDateFormat(pattern, Locale.ROOT);
+            format.setLenient(false);
+            return format.parse(value).getTime();
+        } catch (Exception ignored) {}
+        return -1;
     }
 }
