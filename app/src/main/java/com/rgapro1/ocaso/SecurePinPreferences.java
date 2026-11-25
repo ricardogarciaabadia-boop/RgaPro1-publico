@@ -25,7 +25,8 @@ public final class SecurePinPreferences implements SharedPreferences {
     }
 
     @Override public Map<String, ?> getAll() {
-        Map<String, ?> values = new HashMap<>(delegate.getAll());
+        Map<String, Object> values = new HashMap<>();
+        values.putAll(delegate.getAll());
         values.remove(PIN);
         if (values.get(CLIENTS) instanceof String)
             values.put(CLIENTS, secureData.decode((String) values.get(CLIENTS)));
