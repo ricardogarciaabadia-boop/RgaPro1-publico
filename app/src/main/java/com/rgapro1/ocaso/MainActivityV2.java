@@ -44,7 +44,7 @@ public class MainActivityV2 extends FragmentActivity {
     private final ArrayList<Uri> policyPageUris = new ArrayList<>();
     private final ArrayList<Bitmap> policyPageBitmaps = new ArrayList<>();
     private boolean policyCameraFlow = false;
-    private EditText fullNameE,dniE,birthE,addressE,phoneE;
+    private EditText fullNameE,dniE,birthE,addressE,phoneE,emailE;
     private EditText policyNumberE,holderE,policyDniE,policyAddressE,policyPhoneE,policyEmailE,policyBirthE,policyEffectiveE,policyExpiryE,receiptE,capitalE,decesosE,decesosLeveladaE;
     private TextView confidenceTv;
 
@@ -198,6 +198,7 @@ public class MainActivityV2 extends FragmentActivity {
         addRead(body,"Fecha de nacimiento",x.optString("birthDate",""));
         addRead(body,"Dirección",x.optString("address",""));
         addRead(body,"Teléfono",x.optString("phone",""));
+        addRead(body,"Email",x.optString("email",""));
         body.addView(tv("DOCUMENTOS Y PÓLIZAS",16,BLUE,true));
         JSONArray docs=x.optJSONArray("documentPhotos");
         if(docs!=null) for(int i=0;i<docs.length();i++){
@@ -244,15 +245,16 @@ public class MainActivityV2 extends FragmentActivity {
 
     private void editClient(JSONObject old){
         LinearLayout l=col();
-        EditText n=input("Nombre y apellidos"),d=input("DNI/NIE"),b=input("Fecha de nacimiento dd/MM/yyyy"),ad=input("Dirección"),ph=input("Teléfono");
+        EditText n=input("Nombre y apellidos"),d=input("DNI/NIE"),b=input("Fecha de nacimiento dd/MM/yyyy"),ad=input("Dirección"),ph=input("Teléfono"),em=input("Email");
         if(old!=null){
             n.setText(clientKey(old));
             d.setText(old.optString("identityNumber",old.optString("holderDni","")));
             b.setText(old.optString("birthDate",""));
             ad.setText(old.optString("address",""));
             ph.setText(old.optString("phone",""));
+            em.setText(old.optString("email",""));
         }
-        for(EditText e:new EditText[]{n,d,b,ad,ph}) l.addView(e,new LinearLayout.LayoutParams(-1,dp(52)));
+        for(EditText e:new EditText[]{n,d,b,ad,ph,em}) l.addView(e,new LinearLayout.LayoutParams(-1,dp(52)));
         new AlertDialog.Builder(this).setTitle(old==null?"Nuevo cliente":"Editar cliente").setView(l)
             .setNegativeButton("Cancelar",null).setPositiveButton("Guardar",(di,w)->{
                 try{
@@ -263,6 +265,7 @@ public class MainActivityV2 extends FragmentActivity {
                     x.put("birthDate",b.getText().toString().trim());
                     x.put("address",ad.getText().toString().trim());
                     x.put("phone",ph.getText().toString().trim());
+                    x.put("email",em.getText().toString().trim());
                     if(!x.has("policies")) x.put("policies",new JSONArray());
                     if(!x.has("documentPhotos")) x.put("documentPhotos",new JSONArray());
                     if(upsertClient(x))clients();
@@ -699,7 +702,7 @@ public class MainActivityV2 extends FragmentActivity {
 
 
 
-    private void showIdentityReview(JSONObject x){if(!authenticated)return;shell("Revisión DNI/NIE","Comprueba los datos antes de guardar");body.addView(tv("2 · DOCUMENTO LEÍDO",18,BLUE,true));if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);body.addView(iv,new LinearLayout.LayoutParams(-1,dp(300)));}body.addView(tv("3 · DATOS DETECTADOS",18,BLUE,true));fullNameE=input("Nombre y apellidos");dniE=input("DNI/NIE");birthE=input("Fecha de nacimiento");addressE=input("Dirección");phoneE=input("Teléfono (lo puedes añadir tú)");fullNameE.setText(x.optString("fullName",""));dniE.setText(x.optString("identityNumber",""));birthE.setText(x.optString("birthDate",""));addressE.setText(x.optString("address",""));confidenceTv=tv("Confianza de lectura: "+x.optInt("confidence",0)+"% · Comprueba visualmente el documento.",14,MUTED,false);body.addView(confidenceTv);for(EditText e:new EditText[]{fullNameE,dniE,birthE,addressE,phoneE})body.addView(e,new LinearLayout.LayoutParams(-1,dp(54)));Button accept=btn("✅ ACEPTAR DATOS Y GUARDAR",true),reject=btn("❌ RECHAZAR / VOLVER A DOCUMENTO",false);body.addView(accept,new LinearLayout.LayoutParams(-1,dp(62)));body.addView(reject,new LinearLayout.LayoutParams(-1,dp(58)));accept.setOnClickListener(v->saveIdentity());reject.setOnClickListener(v->ocrPage());}
+    private void showIdentityReview(JSONObject x){if(!authenticated)return;shell("Revisión DNI/NIE","Comprueba los datos antes de guardar");body.addView(tv("2 · DOCUMENTO LEÍDO",18,BLUE,true));if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);body.addView(iv,new LinearLayout.LayoutParams(-1,dp(300)));}body.addView(tv("3 · DATOS DETECTADOS",18,BLUE,true));fullNameE=input("Nombre y apellidos");dniE=input("DNI/NIE");birthE=input("Fecha de nacimiento");addressE=input("Dirección");phoneE=input("Teléfono (lo puedes añadir tú)");emailE=input("Email (lo puedes añadir tú)");fullNameE.setText(x.optString("fullName",""));dniE.setText(x.optString("identityNumber",""));birthE.setText(x.optString("birthDate",""));addressE.setText(x.optString("address",""));confidenceTv=tv("Confianza de lectura: "+x.optInt("confidence",0)+"% · Comprueba visualmente el documento.",14,MUTED,false);body.addView(confidenceTv);for(EditText e:new EditText[]{fullNameE,dniE,birthE,addressE,phoneE,emailE})body.addView(e,new LinearLayout.LayoutParams(-1,dp(54)));Button accept=btn("✅ ACEPTAR DATOS Y GUARDAR",true),reject=btn("❌ RECHAZAR / VOLVER A DOCUMENTO",false);body.addView(accept,new LinearLayout.LayoutParams(-1,dp(62)));body.addView(reject,new LinearLayout.LayoutParams(-1,dp(58)));accept.setOnClickListener(v->saveIdentity());reject.setOnClickListener(v->ocrPage());}
 
     private void saveIdentity(){
         try{
@@ -711,7 +714,7 @@ public class MainActivityV2 extends FragmentActivity {
             if(full.isEmpty()){Toast.makeText(this,"Falta el nombre del cliente. Completa el campo antes de guardar.",Toast.LENGTH_LONG).show();return;}
             if(!validDate(birth)){String existingBirth=x.optString("birthDate","").trim();if(validDate(existingBirth))birth=existingBirth;else{Toast.makeText(this,"Fecha de nacimiento no válida. Revísala antes de guardar.",Toast.LENGTH_LONG).show();return;}}
             x.put("holder",full);x.put("name",full);x.put("surname","");x.put("identityNumber",id);x.put("birthDate",birth);
-            String address=addressE.getText().toString().trim(),phone=phoneE.getText().toString().trim();if(!address.isEmpty())x.put("address",address);if(!phone.isEmpty())x.put("phone",phone);
+            String address=addressE.getText().toString().trim(),phone=phoneE.getText().toString().trim();if(!address.isEmpty())x.put("address",address);if(!phone.isEmpty())x.put("phone",phone);String email=emailE.getText().toString().trim();if(!email.isEmpty())x.put("email",email);
             if(!x.has("policies"))x.put("policies",new JSONArray());
             if(frontImagePath!=null&&!frontImagePath.isEmpty()){
                 try{String p=copyDocumentToArchive(Uri.parse(frontImagePath),"dni_front","jpg");addArchivedDocument(x,p,frontImagePath,"DNI/NIE · anverso","image","");}catch(Exception ignored){}
