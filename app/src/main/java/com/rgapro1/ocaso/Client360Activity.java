@@ -90,7 +90,7 @@ public class Client360Activity extends FragmentActivity {
 
 
     private String documentPath(Object item){if(item==null||item==JSONObject.NULL)return "";if(item instanceof JSONObject)return ((JSONObject)item).optString("path","");return String.valueOf(item);}
-    private void showProduct(JSONObject p){new AlertDialog.Builder(this).setTitle("Producto / póliza").setMessage("Tipo: "+p.optString("type","—")+"\nNúmero: "+p.optString("number","—")+"\nTitular: "+p.optString("holder","—")+"\nVencimiento: "+p.optString("expiry",p.optString("validityDate","—"))).setPositiveButton("Cerrar",null).show();}
+    private void showProduct(JSONObject p){new AlertDialog.Builder(this).setTitle("Producto / póliza").setMessage("Tipo: "+p.optString("policyType",p.optString("type","—"))+"\nNúmero: "+p.optString("number","—")+"\nTitular: "+p.optString("holder","—")+"\nIdentificación: "+p.optString("identityType","DNI/NIE")+" · "+p.optString("identityNumber",p.optString("cif","—"))+"\nVencimiento: "+p.optString("expiry",p.optString("validityDate","—"))).setPositiveButton("Cerrar",null).show();}
 
     private void editClient(){
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(8),0,dp(8),0);
@@ -178,3 +178,4 @@ public class Client360Activity extends FragmentActivity {
     private String mime(String p){String x=p.toLowerCase();if(x.endsWith(".pdf"))return "application/pdf";if(x.endsWith(".png"))return "image/png";if(x.endsWith(".webp"))return "image/webp";return "image/jpeg";}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
 }
+
