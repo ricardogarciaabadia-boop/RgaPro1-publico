@@ -147,7 +147,7 @@ public final class ClientAutoLinker {
         base.put("updatedAt",System.currentTimeMillis());
     }
 
-    private static void addPolicyIfPresent(JSONArray a,JSONObject p)throws Exception{String n=p.optString("number","").trim();if(n.isEmpty())return;JSONObject x=new JSONObject();x.put("number",n);x.put("type",p.optString("type","Otros"));x.put("expiry",p.optString("expiry",p.optString("validityDate","")));x.put("holder",p.optString("holder",""));a.put(x);}
+    private static void addPolicyIfPresent(JSONArray a,JSONObject p)throws Exception{String n=p.optString("number","").trim();if(n.isEmpty())return;JSONObject x=new JSONObject();x.put("number",n);x.put("type",p.optString("type","Otros"));x.put("policyType",p.optString("policyType",p.optString("type","Otros")));x.put("expiry",p.optString("expiry",p.optString("validityDate","")));x.put("holder",p.optString("holder",""));x.put("identityNumber",p.optString("identityNumber",p.optString("cif","")));a.put(x);}
     private static JSONArray uniquePolicies(JSONArray in)throws Exception{JSONArray out=new JSONArray();Set<String>seen=new HashSet<>();for(int i=0;i<in.length();i++){JSONObject p=in.optJSONObject(i);if(p==null)continue;String k=norm(p.optString("number",""));if(k.isEmpty()||seen.add(k))out.put(p);}return out;}
     private static void copyIfEmpty(JSONObject a,JSONObject b,String k)throws Exception{if(empty(a,k)&&!empty(b,k))a.put(k,b.optString(k));}
     private static boolean empty(JSONObject p,String k){return p==null||p.optString(k,"").trim().isEmpty();}
@@ -162,3 +162,4 @@ public final class ClientAutoLinker {
     private static String labelValue(String text,String...labels){for(String label:labels){Pattern p=Pattern.compile("(?:^|\\n)\\s*"+Pattern.quote(label)+"\\s*[:.-]?\\s*([^\\n]{2,100})",Pattern.CASE_INSENSITIVE);Matcher m=p.matcher(text);if(m.find()){String v=m.group(1).trim();if(!v.isEmpty())return v;}}return"";}
     private static String dateAfter(String text,String...labels){for(String label:labels){Pattern p=Pattern.compile(Pattern.quote(label)+"[^\\n]{0,50}?"+DATE.pattern(),Pattern.CASE_INSENSITIVE);Matcher m=p.matcher(text);if(m.find()){Matcher d=DATE.matcher(m.group());if(d.find())return d.group();}}return"";}
 }
+
