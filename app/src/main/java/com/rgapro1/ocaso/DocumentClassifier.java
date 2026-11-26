@@ -34,6 +34,9 @@ public final class DocumentClassifier {
     private static int frontScore(String u){
         int s=0;
         if(u.contains("DOCUMENTO NACIONAL DE IDENTIDAD")||u.contains("DOCUMENTO NACIONAL"))s+=7;
+        if(u.contains("PERMISO DE RESIDENCIA")||u.contains("TARJETA DE RESIDENCIA"))s+=9;
+        if(u.contains("AUTORIZA A TRABAJAR"))s+=3;
+        if(u.contains("NIE")&&Pattern.compile("\\b[XYZ][0-9]{7}[A-Z]\\b").matcher(u).find())s+=6;
         if(u.contains("APELLIDOS"))s+=5;if(u.contains("NOMBRE"))s+=4;if(u.contains("NACIONALIDAD"))s+=3;
         if(u.contains("NACIMIENTO"))s+=3;if(u.contains("SEXO"))s+=2;if(u.contains("ESPANA"))s+=2;if(DNI.matcher(u).find())s+=5;
         return s;
