@@ -15,18 +15,19 @@ public final class DniOcrEngine {
 
     public static void process(Bitmap first,Bitmap second,Callback callback){
         if(first==null||second==null){callback.onFailure(new IllegalArgumentException("Faltan las dos caras del DNI/NIE"));return;}
-        classify(first,0,new Candidate(),a->classify(second,0,new Candidate(),b->finish(a,b,callback)));
+        Bitmap firstAnalysis=prepareAnalysis(first),secondAnalysis=prepareAnalysis(second);
+        classify(first,firstAnalysis,0,new Candidate(),a->classify(second,secondAnalysis,0,new Candidate(),b->finish(a,b,callback)));
     }
 
-    private static void classify(Bitmap source,int degrees,Candidate best,CandidateCallback cb){
-        if(degrees>=360){if(best.source==null)best.source=source;cb.done(best);return;}
-        Bitmap rotated=DniImagePreprocessor.rotate(source,degrees); Bitmap small=limit(rotated,1500);
+    private static void classify(Bitmap source,Bitmap analysisSource,int degrees,Candidate best,CandidateCallback cb){
+        if(degrees>=360){if(best.source==null)best.source=source;if(analysisSource!=source&&!analysisSource.isRecycled())analysisSource.recycle();cb.done(best);return;}
+        Bitmap rotated=DniImagePreprocessor.rotate(analysisSource,degrees); Bitmap small=limit(rotated,1500);
         TextRecognizer rec=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         rec.process(InputImage.fromBitmap(small,0)).addOnSuccessListener(result->{
             String t=result==null?"":result.getText(); int fs=frontScore(t),bs=backScore(t),score=Math.max(fs,bs);
             if(score>best.total){best.source=source;best.text=t;best.degrees=degrees;best.front=fs;best.back=bs;best.total=score;}
-            rec.close(); release(small,rotated,source); classify(source,degrees+90,best,cb);
-        }).addOnFailureListener(e->{rec.close();release(small,rotated,source);classify(source,degrees+90,best,cb);});
+            rec.close(); releaseCandidate(small,rotated,analysisSource); classify(source,analysisSource,degrees+90,best,cb);
+        }).addOnFailureListener(e->{rec.close();releaseCandidate(small,rotated,analysisSource);classify(source,analysisSource,degrees+90,best,cb);});
     }
 
     private static void finish(Candidate a,Candidate b,Callback cb){
@@ -46,10 +47,12 @@ public final class DniOcrEngine {
     }
 
     private static Bitmap prepare(Bitmap source,int degrees){Bitmap rotated=DniImagePreprocessor.rotate(source,degrees);Bitmap p=DniImagePreprocessor.prepare(rotated);if(p!=rotated&&rotated!=source&&!rotated.isRecycled())rotated.recycle();return p;}
-    private static void release(Bitmap small,Bitmap rotated,Bitmap source){if(small!=rotated&&!small.isRecycled())small.recycle();if(rotated!=source&&!rotated.isRecycled())rotated.recycle();}
+    private static Bitmap prepareAnalysis(Bitmap source){Bitmap prepared=DniImagePreprocessor.prepare(source);Bitmap bounded=limit(prepared,1500);if(bounded!=prepared&&!prepared.isRecycled())prepared.recycle();return bounded;}
+    private static void releaseCandidate(Bitmap small,Bitmap rotated,Bitmap analysisSource){if(small!=rotated&&small!=analysisSource&&!small.isRecycled())small.recycle();if(rotated!=analysisSource&&!rotated.isRecycled())rotated.recycle();}
     private static Bitmap limit(Bitmap b,int max){int l=Math.max(b.getWidth(),b.getHeight());if(l<=max)return b;float s=max/(float)l;return Bitmap.createScaledBitmap(b,Math.round(b.getWidth()*s),Math.round(b.getHeight()*s),true);}
 
     private static String norm(String s){return (s==null?"":s).toUpperCase(java.util.Locale.ROOT).replace('Á','A').replace('É','E').replace('Í','I').replace('Ó','O').replace('Ú','U').replace('0','O');}
     private static int frontScore(String raw){String u=norm(raw);int s=0;if(u.contains("ESPANA"))s+=4;if(u.contains("DOCUMENTO NACIONAL"))s+=6;if(u.contains("PERMISO DE RESIDENCIA")||u.contains("TARJETA DE RESIDENCIA"))s+=9;if(u.contains("AUTORIZA A TRABAJAR"))s+=3;if(u.contains("NIE")&&java.util.regex.Pattern.compile("(?s).*\\b[XYZ][0-9]{7}[A-Z]\\b.*").matcher(u).matches())s+=6;if(u.contains("APELLIDOS"))s+=6;if(u.contains("NOMBRE"))s+=5;if(u.contains("NACIONALIDAD"))s+=3;if(u.contains("NACIMIENTO"))s+=5;if(u.contains("SEXO"))s+=2;if(u.matches("(?s).*\\b\\d{8}[A-Z]\\b.*"))s+=5;return s;}
     private static int backScore(String raw){String u=norm(raw);int s=0;if(u.contains("IDESP"))s+=10;if(u.contains("DOMICILIO"))s+=6;if(u.contains("LUGAR DE NACIMIENTO"))s+=4;if(u.contains("EQUIPO"))s+=3;if(u.contains("HIJO DE"))s+=3;if(u.contains("<<<<"))s+=8;return s;}
 }
+
