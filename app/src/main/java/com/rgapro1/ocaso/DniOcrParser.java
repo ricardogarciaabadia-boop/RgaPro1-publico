@@ -47,11 +47,9 @@ public final class DniOcrParser {
         String mrz = extractMrz(lines);
         r.mrz = mrz;
         if (!mrz.isEmpty()) parseMrz(mrz, r);
-        if (r.name.isEmpty() || r.surname.isEmpty()) {
-            String[] names = mrzNames(mrz);
-            if (r.surname.isEmpty()) r.surname = names[0];
-            if (r.name.isEmpty()) r.name = names[1];
-        }
+        String[] names = mrzNames(mrz);
+        if (!names[0].isEmpty()) r.surname = names[0];
+        if (!names[1].isEmpty()) r.name = names[1];
         if (!r.name.isEmpty() || !r.surname.isEmpty()) r.holder = clean((r.name + " " + r.surname).trim());
         if (r.holder.isEmpty()) r.holder = fallbackPerson(lines);
 
@@ -120,7 +118,7 @@ public final class DniOcrParser {
         String compact = mrz.replace(" ", "");
         // La MRZ del DNI español suele contener IDESP + código de soporte + DNI.
         // No asumimos que el código de soporte tenga longitud fija.
-        Matcher mid = Pattern.compile("IDESP[A-Z0-9<]*?([0-9]{8}[A-Z])").matcher(compact);
+        Matcher mid = Pattern.compile("(?:IDESP|IRESP)[A-Z0-9<]*?([XYZ][0-9]{7}[A-Z]|[0-9]{8}[A-Z])").matcher(compact);
         while (mid.find()) if (validIdentity(mid.group(1))) { r.dni = mid.group(1); break; }
         String[] names = mrzNames(mrz);
         if (!names[0].isEmpty()) r.surname = names[0];
@@ -140,7 +138,7 @@ public final class DniOcrParser {
     private static String[] mrzNames(String mrz) {
         String[] result = {"", ""};
         if (mrz == null || mrz.isEmpty()) return result;
-        Matcher m = Pattern.compile("([A-ZÑ]+(?:<[A-ZÑ]+)*)<<([A-ZÑ]+(?:<[A-ZÑ]+)*)").matcher(mrz.replace(" ", ""));
+        Matcher m = Pattern.compile("([A-ZÑ]+(?:<[A-ZÑ]+)*)<<([A-ZÑ]+(?:<[A-ZÑ]+)*)").matcher(mrz.replace(" ", "").replace('0','O').replace('1','I'));
         if (!m.find()) return result;
         result[0] = clean(m.group(1).replace('<', ' '));
         result[1] = clean(m.group(2).replace('<', ' '));
@@ -229,3 +227,4 @@ public final class DniOcrParser {
     private static String mrzDate(String yyMMdd) { try { int yy=Integer.parseInt(yyMMdd.substring(0,2)); int y=yy<=30?2000+yy:1900+yy; return String.format(Locale.ROOT,"%02d/%02d/%04d",Integer.parseInt(yyMMdd.substring(4,6)),Integer.parseInt(yyMMdd.substring(2,4)),y); } catch(Exception e){return "";} }
     private static final class Candidate { final String value; final int score; Candidate(String v,int s){value=v;score=s;} }
 }
+
