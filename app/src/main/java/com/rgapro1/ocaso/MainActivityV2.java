@@ -18,6 +18,8 @@ import android.view.*;
 import android.widget.*;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
 import androidx.fragment.app.FragmentActivity;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.TextRecognition;
@@ -32,7 +34,7 @@ import java.util.regex.*;
 public class MainActivityV2 extends FragmentActivity {
     private static final int NAVY=Color.rgb(8,35,70), BLUE=Color.rgb(22,126,222), BG=Color.rgb(246,248,252);
     private static final int TEXT=Color.rgb(28,39,54), MUTED=Color.rgb(100,112,130), GREEN=Color.rgb(31,132,88);
-    private static final int CAMERA=8101, IMAGE=8102, PDF=8103, POLICY_CAMERA=8104, POLICY_CAMERA_PERMISSION=8105;
+    private static final int CAMERA=8101, IMAGE=8102, PDF=8103, POLICY_CAMERA=8104, POLICY_CAMERA_PERMISSION=8105, DOCUMENT=8107;
     private static final long SESSION_IDLE_LIMIT_MS=5*60*1000L;
     private SharedPreferences prefs; private LinearLayout body; private Uri cameraUri, documentUri; private int side=0;
     private SecurePinStore securePinStore; private final Handler sessionHandler=new Handler(Looper.getMainLooper());
@@ -45,6 +47,8 @@ public class MainActivityV2 extends FragmentActivity {
     private final ArrayList<Bitmap> policyPageBitmaps = new ArrayList<>();
     private boolean policyCameraFlow = false;
     private EditText fullNameE,dniE,birthE,addressE,phoneE,emailE;
+    private Button processOcrButton;
+    private LinearLayout previewContainer;
     private EditText policyNumberE,holderE,policyDniE,policyAddressE,policyPhoneE,policyEmailE,policyBirthE,policyEffectiveE,policyExpiryE,receiptE,capitalE,decesosE,decesosLeveladaE;
     private TextView confidenceTv;
 
@@ -136,7 +140,24 @@ public class MainActivityV2 extends FragmentActivity {
             else status.setText("PIN incorrecto. Intento "+attempts+" de 5.");
             edit.apply();pin.setText("");
         });
+        if(BiometricManager.from(this).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)==BiometricManager.BIOMETRIC_SUCCESS){
+            Button biometric=btn("🔒 Entrar con huella o biometría",false);
+            root.addView(biometric,new LinearLayout.LayoutParams(-1,dp(58)));
+            biometric.setOnClickListener(v->biometricLogin());
+        }
         setContentView(root);
+    }
+
+    private void biometricLogin(){
+        int capability=BiometricManager.from(this).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK);
+        if(capability!=BiometricManager.BIOMETRIC_SUCCESS){Toast.makeText(this,"Biometría no disponible. Puedes entrar con tu PIN.",Toast.LENGTH_LONG).show();return;}
+        BiometricPrompt prompt=new BiometricPrompt(this,ContextCompat.getMainExecutor(this),new BiometricPrompt.AuthenticationCallback(){
+            @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result){unlockSession();}
+            @Override public void onAuthenticationError(int code,CharSequence message){if(code!=BiometricPrompt.ERROR_NEGATIVE_BUTTON&&code!=BiometricPrompt.ERROR_USER_CANCELED&&code!=BiometricPrompt.ERROR_CANCELED)Toast.makeText(MainActivityV2.this,"No se pudo autenticar. Usa tu PIN.",Toast.LENGTH_LONG).show();}
+            @Override public void onAuthenticationFailed(){Toast.makeText(MainActivityV2.this,"Huella o rostro no reconocido. Prueba de nuevo o usa el PIN.",Toast.LENGTH_SHORT).show();}
+        });
+        BiometricPrompt.PromptInfo info=new BiometricPrompt.PromptInfo.Builder().setTitle("Acceso a RgaPro").setSubtitle("Confirma tu identidad para abrir la cartera").setNegativeButtonText("Usar PIN").setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK).build();
+        prompt.authenticate(info);
     }
 
     private LinearLayout authLayout(String title,String subtitle){
@@ -194,7 +215,7 @@ public class MainActivityV2 extends FragmentActivity {
         shell("Ficha de cliente",clientKey(x));
         body.addView(tv(clientKey(x),25,TEXT,true));
         body.addView(tv("DATOS DEL CLIENTE",16,BLUE,true));
-        addRead(body,"DNI/NIE",x.optString("identityNumber",x.optString("holderDni","")));
+        addRead(body,"DNI/NIE/CIF",x.optString("identityNumber",x.optString("holderDni",x.optString("cif",""))));
         addRead(body,"Fecha de nacimiento",x.optString("birthDate",""));
         addRead(body,"Dirección",x.optString("address",""));
         addRead(body,"Teléfono",x.optString("phone",""));
@@ -369,7 +390,7 @@ public class MainActivityV2 extends FragmentActivity {
         addRead(l,"Producto",product);
         addRead(l,"PROPUESTA".equalsIgnoreCase(p.optString("documentStatus",""))?"Número de referencia":"Número de póliza",p.optString("number",""));
         addRead(l,"Tomador",p.optString("holder",""));
-        addRead(l,"DNI/NIE",p.optString("identityNumber",""));
+        addRead(l,"DNI/NIE/CIF",p.optString("identityNumber",p.optString("cif","")));
         addRead(l,"Dirección",p.optString("address",""));
         addRead(l,"Teléfono",p.optString("phone",""));
         addRead(l,"Email",p.optString("email",""));
@@ -421,16 +442,24 @@ public class MainActivityV2 extends FragmentActivity {
 
     private void policies(){shell("Pólizas","Pólizas Ocaso guardadas");JSONArray a=clientsData();boolean any=false;for(int i=0;i<a.length();i++){JSONObject c=a.optJSONObject(i);if(c==null)continue;JSONArray ps=c.optJSONArray("policies");if(ps==null)continue;for(int j=0;j<ps.length();j++){JSONObject p=ps.optJSONObject(j);if(p==null)continue;any=true;String status="PROPUESTA".equalsIgnoreCase(p.optString("documentStatus",""))?"Propuesta pendiente":"Póliza";Button b=btn("▣ "+status+" · "+p.optString("number","—")+System.lineSeparator()+clientKey(c),false);b.setOnClickListener(v->policyDetail(p));body.addView(b,new LinearLayout.LayoutParams(-1,dp(72)));}}if(!any)body.addView(tv("No hay pólizas guardadas.",15,MUTED,false));Button scan=btn("📄 SUBIR PÓLIZA PDF",true);scan.setOnClickListener(v->choosePdf());body.addView(scan,new LinearLayout.LayoutParams(-1,dp(60)));Button cameraPolicy=btn("📷 FOTOGRAFIAR PÓLIZA · VARIAS PÁGINAS",true);cameraPolicy.setOnClickListener(v->{policyPageUris.clear();policyPageBitmaps.clear();policyCameraFlow=true;startPolicyPageCamera();});body.addView(cameraPolicy,new LinearLayout.LayoutParams(-1,dp(64)));}
 
-    private void ocrPage(){shell("OCR","Primero revisa el documento; después procesa y acepta los datos");body.addView(tv("1 · DOCUMENTO",18,BLUE,true));body.addView(tv("El archivo NO se guarda todavía. Primero comprueba que es el documento correcto.",14,MUTED,false));LinearLayout preview=col();preview.setBackground(box(Color.WHITE,16));body.addView(preview);renderPreview(preview);
+    private void ocrPage(){shell("OCR","Primero revisa el documento; después procesa y acepta los datos");body.addView(tv("1 · DOCUMENTO",18,BLUE,true));body.addView(tv("El archivo NO se guarda todavía. Primero comprueba que es el documento correcto.",14,MUTED,false));LinearLayout preview=col();previewContainer=preview;preview.setBackground(box(Color.WHITE,16));body.addView(preview);renderPreview(preview);
         LinearLayout r=new LinearLayout(this);Button front=btn("📷 Tomar anverso",true),back=btn("↩️ Tomar reverso",false);r.addView(front,new LinearLayout.LayoutParams(0,dp(58),1));r.addView(back,new LinearLayout.LayoutParams(0,dp(58),1));body.addView(r);front.setOnClickListener(v->{if(!awaitingDniBack)resetDniIntake();side=1;takePhoto();});back.setOnClickListener(v->{side=2;takePhoto();});
-        LinearLayout r2=new LinearLayout(this);Button img=btn("🖼️ Elegir JPEG/JPG",false),pdf=btn("📄 Elegir PDF",false);r2.addView(img,new LinearLayout.LayoutParams(0,dp(58),1));r2.addView(pdf,new LinearLayout.LayoutParams(0,dp(58),1));body.addView(r2);img.setOnClickListener(v->chooseImage());pdf.setOnClickListener(v->choosePdf());
-        Button process=btn("▶ PROCESAR OCR",true);process.setOnClickListener(v->processCurrentDocument());body.addView(process,new LinearLayout.LayoutParams(-1,dp(62)));
+        Button addDocument=btn("📎 AÑADIR DOCUMENTO · PDF O JPEG/JPG",false);body.addView(addDocument,new LinearLayout.LayoutParams(-1,dp(58)));addDocument.setOnClickListener(v->chooseDocument());
+        Button process=btn("▶ PROCESAR OCR",true);processOcrButton=process;process.setOnClickListener(v->processCurrentDocument());body.addView(process,new LinearLayout.LayoutParams(-1,dp(62)));
         if(documentKind==0)body.addView(tv("Selecciona o fotografía un documento para continuar.",14,MUTED,false));
     }
 
-    private void renderPreview(LinearLayout container){if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);container.addView(iv,new LinearLayout.LayoutParams(-1,dp(360)));container.addView(tv(documentKind==2?"Vista previa: primera página del PDF":"Vista previa: imagen original",14,GREEN,true));}else container.addView(tv("Aún no has seleccionado ningún documento.",15,MUTED,false));}
+    private void renderPreview(LinearLayout container){if(previewBitmap!=null){ImageView iv=new ImageView(this);iv.setImageBitmap(previewBitmap);iv.setScaleType(ImageView.ScaleType.FIT_CENTER);iv.setAdjustViewBounds(true);container.addView(iv,new LinearLayout.LayoutParams(-1,dp(360)));container.addView(tv(documentKind==2?"Vista previa: primera página del PDF":"Vista previa: imagen original",14,GREEN,true));}else container.addView(tv(documentKind==2?"Preparando vista previa del PDF…":"Aún no has seleccionado ningún documento.",15,MUTED,false));}
 
     private void takePhoto(){if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.CAMERA},CAMERA);return;}try{File f=new File(getFilesDir(),"captures/scan_"+System.currentTimeMillis()+".jpg");File parent=f.getParentFile();if(parent!=null&&!parent.exists()&&!parent.mkdirs())throw new IOException("No se pudo crear la carpeta privada");cameraUri=FileProvider.getUriForFile(this,getPackageName()+".fileprovider",f);Intent i=new Intent(MediaStore.ACTION_IMAGE_CAPTURE);i.putExtra(MediaStore.EXTRA_OUTPUT,cameraUri);i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivityForResult(i,CAMERA);}catch(Exception e){Toast.makeText(this,"No se pudo abrir la cámara",Toast.LENGTH_LONG).show();}}
+
+    private void chooseDocument(){
+        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("*/*");i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/pdf","image/jpeg","image/png"});i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);i.addCategory(Intent.CATEGORY_OPENABLE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,DOCUMENT);
+    }
+
+    private boolean isPdfDocument(Uri uri){String mime=getContentResolver().getType(uri);if("application/pdf".equalsIgnoreCase(mime))return true;String name=displayName(uri).toLowerCase(Locale.ROOT);return name.endsWith(".pdf");}
+    private boolean isImageDocument(Uri uri){String mime=getContentResolver().getType(uri);if(mime!=null&&mime.toLowerCase(Locale.ROOT).startsWith("image/"))return true;String name=displayName(uri).toLowerCase(Locale.ROOT);return name.endsWith(".jpg")||name.endsWith(".jpeg")||name.endsWith(".png");}
+    private String displayName(Uri uri){try(android.database.Cursor c=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)){if(c!=null&&c.moveToFirst()){int i=c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);if(i>=0)return c.getString(i);}}catch(Exception ignored){}return uri.getLastPathSegment()==null?"":uri.getLastPathSegment();}
 
 
 
@@ -486,7 +515,20 @@ public class MainActivityV2 extends FragmentActivity {
                 if(cameraUri==null)throw new IOException("No se recibió la foto");
                 Bitmap page=loadPolicyPageForOcr(cameraUri);policyPageUris.add(cameraUri);policyPageBitmaps.add(page);policyCameraFlow=true;askPolicyPageNext();return;
             }
-            if(request==PDF){Uri u=data==null?null:data.getData();if(u==null)return;resetDniIntake();documentUri=u;documentKind=2;previewBitmap=renderPdfFirstPage(u);currentImagePath=u.toString();ocrPage();return;}
+            if(request==PDF){Uri u=data==null?null:data.getData();if(u!=null)openPdfForOcr(u);return;}
+            if(request==DOCUMENT&&data!=null){
+                if(data.getClipData()!=null&&data.getClipData().getItemCount()>=2){
+                    Uri first=data.getClipData().getItemAt(0).getUri(),second=data.getClipData().getItemAt(1).getUri();
+                    if(isImageDocument(first)&&isImageDocument(second)){resetDniIntake();frontBitmap=loadBitmap(first);backBitmap=loadBitmap(second);frontImagePath=first.toString();backImagePath=second.toString();currentBitmap=frontBitmap;previewBitmap=frontBitmap;documentUri=first;documentKind=1;reviewDniPair();return;}
+                }
+                Uri u=data.getData()!=null?data.getData():data.getClipData()==null?null:data.getClipData().getItemAt(0).getUri();if(u==null)return;
+                if(isPdfDocument(u)){openPdfForOcr(u);return;}
+                if(!isImageDocument(u)){Toast.makeText(this,"Elige un PDF o una imagen JPEG/JPG.",Toast.LENGTH_LONG).show();return;}
+                if(!awaitingDniBack)resetDniIntake();
+                documentUri=u;documentKind=1;currentBitmap=loadBitmap(u);previewBitmap=currentBitmap;currentImagePath=u.toString();
+                if(awaitingDniBack){backBitmap=currentBitmap;backImagePath=currentImagePath;}else{frontBitmap=currentBitmap;frontImagePath=currentImagePath;}
+                ocrPage();processImage();return;
+            }
             if(request==IMAGE && data!=null && data.getClipData()!=null){
                 int n=data.getClipData().getItemCount();
                 if(n>=2){resetDniIntake();Uri f=data.getClipData().getItemAt(0).getUri();Uri b=data.getClipData().getItemAt(1).getUri();frontBitmap=loadBitmap(f);backBitmap=loadBitmap(b);frontImagePath=f.toString();backImagePath=b.toString();currentBitmap=frontBitmap;previewBitmap=frontBitmap;documentUri=f;documentKind=1;reviewDniPair();return;}
@@ -497,9 +539,20 @@ public class MainActivityV2 extends FragmentActivity {
             if(request==CAMERA){if(side==2){backBitmap=currentBitmap;backImagePath=currentImagePath;}else{frontBitmap=currentBitmap;frontImagePath=currentImagePath;}}
             else if(frontBitmap==null){frontBitmap=currentBitmap;frontImagePath=currentImagePath;}
             else {backBitmap=currentBitmap;backImagePath=currentImagePath;}
-            if(frontBitmap!=null && backBitmap==null){Toast.makeText(this,"Documento cargado. Pulsa PROCESAR OCR para identificarlo.",Toast.LENGTH_LONG).show();ocrPage();}
-            else {reviewDniPair();}
+            if(awaitingDniBack&&frontBitmap!=null&&backBitmap!=null){ocrPage();processImage();}
+            else if(frontBitmap!=null&&backBitmap!=null){reviewDniPair();}
+            else {ocrPage();processImage();}
         }catch(Exception e){Toast.makeText(this,"No se pudo cargar el documento: "+e.getMessage(),Toast.LENGTH_LONG).show();}
+    }
+
+    private void openPdfForOcr(Uri uri){
+        resetDniIntake();documentUri=uri;documentKind=2;previewBitmap=null;currentImagePath=uri.toString();ocrPage();processCurrentDocument();
+        new Thread(()->{
+            try{
+                Bitmap firstPage=renderPdfFirstPage(uri);
+                runOnUiThread(()->{if(isFinishing()||!uri.equals(documentUri))return;previewBitmap=firstPage;if(previewContainer!=null&&previewContainer.isAttachedToWindow()){previewContainer.removeAllViews();renderPreview(previewContainer);}});
+            }catch(Exception ignored){runOnUiThread(()->Toast.makeText(this,"No se pudo mostrar la vista previa; el OCR continuará igualmente.",Toast.LENGTH_LONG).show());}
+        },"RgaPro-PdfPreview").start();
     }
     private Bitmap loadBitmap(Uri u)throws Exception{InputStream in=getContentResolver().openInputStream(u);Bitmap b=BitmapFactory.decodeStream(in);if(in!=null)in.close();if(b==null)throw new IOException("imagen vacía");return b;}
     private Bitmap renderPdfFirstPage(Uri u)throws Exception{try(ParcelFileDescriptor pfd=getContentResolver().openFileDescriptor(u,"r")){if(pfd==null)throw new IOException("PDF no disponible");android.graphics.pdf.PdfRenderer renderer=new android.graphics.pdf.PdfRenderer(pfd);try{if(renderer.getPageCount()==0)throw new IOException("PDF vacío");android.graphics.pdf.PdfRenderer.Page page=renderer.openPage(0);int w=Math.min(1600,Math.max(900,page.getWidth()*2));int h=Math.min(2200,Math.max(1200,page.getHeight()*2));Bitmap b=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);page.render(b,null,null,android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);page.close();return b;}finally{renderer.close();}}}
@@ -618,13 +671,19 @@ public class MainActivityV2 extends FragmentActivity {
 
     private void processCurrentDocument(){
         if(documentUri==null||documentKind==0){Toast.makeText(this,"Primero selecciona un documento.",Toast.LENGTH_LONG).show();return;}
+        if(processOcrButton!=null){processOcrButton.setEnabled(false);processOcrButton.setText("Procesando documento…");}
         if(documentKind==2){
-            PdfOcrHelper.process(this,documentUri,new PdfOcrHelper.Callback(){
-                public void onSuccess(String text){runOnUiThread(()->routeRecognizedDocument(text));}
-                public void onError(Exception e){runOnUiThread(()->Toast.makeText(MainActivityV2.this,"PDF: "+e.getMessage(),Toast.LENGTH_LONG).show());}
-            });
+            try{
+                PdfOcrHelper.process(this,documentUri,new PdfOcrHelper.Callback(){
+                    public void onProgress(int completed,int total){runOnUiThread(()->{if(processOcrButton!=null){processOcrButton.setEnabled(false);processOcrButton.setText("Leyendo página "+completed+" de "+total+"…");}});}
+                    public void onSuccess(String text){runOnUiThread(()->{restoreOcrButton();routeRecognizedDocument(text);});}
+                    public void onError(Exception e){runOnUiThread(()->{restoreOcrButton();Toast.makeText(MainActivityV2.this,"PDF: "+e.getMessage(),Toast.LENGTH_LONG).show();});}
+                });
+            }catch(Exception e){restoreOcrButton();Toast.makeText(this,"No se pudo iniciar el OCR del PDF: "+e.getMessage(),Toast.LENGTH_LONG).show();}
         }else processImage();
     }
+
+    private void restoreOcrButton(){if(processOcrButton!=null){processOcrButton.setEnabled(true);processOcrButton.setText("▶ PROCESAR OCR");}}
 
     /** Clasifica el texto antes de abrir el formulario correcto; nunca guarda a ciegas. */
     private void routeRecognizedDocument(String text){
@@ -644,16 +703,23 @@ public class MainActivityV2 extends FragmentActivity {
             showPolicyReview(OcasoPolicyParser.parse(raw),raw);
         }else if(result.type==DocumentType.DNI_FRONT){
             frontText=raw;frontBitmap=currentBitmap;frontImagePath=currentImagePath;awaitingDniBack=true;side=2;
-            Toast.makeText(this,"Anverso reconocido. Selecciona o fotografía el reverso; comprobaremos ambas caras antes de guardar.",Toast.LENGTH_LONG).show();
-            ocrPage();
+            ocrPage();promptForDniSide("reverso",2);
         }else if(result.type==DocumentType.DNI_BACK){
-            Toast.makeText(this,"Reverso reconocido. Para crear el cliente también necesitas el ANVERSO del DNI/NIE.",Toast.LENGTH_LONG).show();
+            awaitingDniBack=false;side=1;ocrPage();promptForDniSide("anverso",1);
         }else{
             String reason=result.type==DocumentType.RECEIPT?"El documento parece un recibo, no una póliza.":"No se ha podido distinguir con seguridad entre DNI/NIE y póliza.";
             new AlertDialog.Builder(this).setTitle("Documento no identificado")
                 .setMessage(reason+"\n\nPrueba con una imagen más nítida o selecciona el anverso y reverso del DNI/NIE.")
                 .setPositiveButton("Volver al OCR",(d,w)->ocrPage()).setNegativeButton("Cerrar",null).show();
         }
+    }
+
+    private void promptForDniSide(String sideName,int sideToCapture){
+        new AlertDialog.Builder(this).setTitle("DNI/NIE: falta el "+sideName)
+            .setMessage("He leído la primera cara. Ahora fotografía o adjunta la cara que falta para comprobar las dos antes de crear el cliente.")
+            .setPositiveButton("Fotografiar "+sideName,(d,w)->{side=sideToCapture;takePhoto();})
+            .setNeutralButton("Elegir imagen",(d,w)->{side=sideToCapture;chooseImage();})
+            .setNegativeButton("Más tarde",null).show();
     }
 
     private boolean pdfContainsBothDniSides(String text){
@@ -670,8 +736,8 @@ public class MainActivityV2 extends FragmentActivity {
     private void showMissingDniSide(String message){new AlertDialog.Builder(this).setTitle("DNI/NIE incompleto").setMessage(message+"\n\nNo se guardará el cliente hasta leer las dos caras.").setPositiveButton("Volver al OCR",(d,w)->ocrPage()).setNegativeButton("Cerrar",null).show();}
     private void resetDniIntake(){frontBitmap=null;backBitmap=null;frontText="";backText="";frontImagePath="";backImagePath="";awaitingDniBack=false;dniPairConfirmed=false;}
     private void processImage(){
-        if(currentBitmap==null){Toast.makeText(this,"Primero selecciona un JPEG válido.",Toast.LENGTH_LONG).show();return;}
-        TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);r.process(InputImage.fromBitmap(currentBitmap,0)).addOnSuccessListener(t->{String text=t.getText()==null?"":t.getText();r.close();routeRecognizedDocument(text);}).addOnFailureListener(e->{r.close();Toast.makeText(this,"OCR: "+e.getMessage(),Toast.LENGTH_LONG).show();});
+        if(currentBitmap==null){restoreOcrButton();Toast.makeText(this,"Primero selecciona un JPEG válido.",Toast.LENGTH_LONG).show();return;}
+        TextRecognizer r=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);r.process(InputImage.fromBitmap(currentBitmap,0)).addOnSuccessListener(t->{String text=t.getText()==null?"":t.getText();r.close();restoreOcrButton();routeRecognizedDocument(text);}).addOnFailureListener(e->{r.close();restoreOcrButton();Toast.makeText(this,"OCR: "+e.getMessage(),Toast.LENGTH_LONG).show();});
     }
 
 
@@ -755,10 +821,12 @@ public class MainActivityV2 extends FragmentActivity {
         body.addView(tv("Confianza de lectura: "+confidence+"%",14,confidence>=85?GREEN:(confidence>=60?TEXT:Color.rgb(180,80,40)),true));
         String validity=p.optString("proposalValidUntil","");
         body.addView(tv(proposal?"El documento indica que es una propuesta todavía no formalizada."+(validity.isEmpty()?"":" Válida para contratar hasta "+validity+".")+" Revísalo antes de archivarlo.":"Solo se muestran los datos esenciales. El documento completo se archivará en el cliente.",13,proposal?Color.rgb(180,80,40):MUTED,false));
+        body.addView(tv("Modalidad detectada: "+p.optString("policyType","Otros"),15,BLUE,true));
 
         policyNumberE=input(proposal?"Número de referencia":"Número de póliza");
-        holderE=input("Nombre y apellidos");
-        policyDniE=input("DNI/NIE");
+        boolean community="Comunidades".equalsIgnoreCase(p.optString("policyType",""));
+        holderE=input(community?"Tomador / razón social":"Nombre y apellidos");
+        policyDniE=input(community?"DNI / NIE / CIF":"DNI / NIE");
         policyAddressE=input("Dirección");
         policyPhoneE=input("Teléfono");
         policyEmailE=input("Email");
@@ -779,8 +847,8 @@ public class MainActivityV2 extends FragmentActivity {
         decesosLeveladaE.setText(p.optString("decesosLevelada",""));
 
         addPolicyField(proposal?"NÚMERO DE REFERENCIA":"NÚMERO DE PÓLIZA",null,policyNumberE);
-        addPolicyField("NOMBRE Y APELLIDOS",null,holderE);
-        addPolicyField("DNI / NIE",null,policyDniE);
+        addPolicyField(community?"TOMADOR / RAZÓN SOCIAL":"NOMBRE Y APELLIDOS",null,holderE);
+        addPolicyField(community?"DNI / NIE / CIF":"DNI / NIE",null,policyDniE);
         policyBirthE=input("Fecha de nacimiento");
         policyBirthE.setText(p.optString("birthDate",""));
         addPolicyField("FECHA DE NACIMIENTO",null,policyBirthE);
@@ -894,7 +962,7 @@ public class MainActivityV2 extends FragmentActivity {
 
     private void savePolicy(String raw,JSONArray insured){
         try{
-            String id=policyDniE.getText().toString().trim().toUpperCase(Locale.ROOT),number=policyNumberE.getText().toString().trim();
+            String id=policyDniE.getText().toString().trim().toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]",""),number=policyNumberE.getText().toString().trim();
             JSONObject parsed=OcasoPolicyParser.parse(raw);
             if(id.isEmpty()) id=parsed.optString("identityNumber","").trim().toUpperCase(Locale.ROOT);
             String holder=holderE.getText().toString().trim(); if(holder.isEmpty()) holder=parsed.optString("holder","").trim();
@@ -912,10 +980,11 @@ public class MainActivityV2 extends FragmentActivity {
             if(number.isEmpty()) number=parsed.optString("number","").trim();
             if(number.isEmpty()){Toast.makeText(this,"El número de póliza es obligatorio.",Toast.LENGTH_LONG).show();return;}
             if(holder.isEmpty()){Toast.makeText(this,"No se ha podido identificar al tomador. Revísalo antes de guardar.",Toast.LENGTH_LONG).show();return;}
-            if(!id.isEmpty()&&!isValidIdentity(id)){Toast.makeText(this,"DNI/NIE no válido. Revísalo antes de guardar.",Toast.LENGTH_LONG).show();return;}
-            String product=parsed.optString("policyType",currentPolicyProduct(raw));
+            if(!id.isEmpty()&&!isValidTaxIdentity(id)){Toast.makeText(this,"DNI/NIE/CIF no válido. Revísalo antes de guardar.",Toast.LENGTH_LONG).show();return;}
+            String product=parsed.optString("policyType","").trim();if(product.isEmpty()||"Otros".equalsIgnoreCase(product))product=currentPolicyProduct(raw);
+            boolean cifIdentity=isValidCif(id);
             JSONObject c=matched;
-            if(c==null&&id.isEmpty()&&hasAmbiguousNameMatches(holder)){Toast.makeText(this,"Hay varios clientes con ese nombre. Añade o revisa el DNI/NIE, teléfono o email para asociar la póliza sin riesgo de duplicar o mezclar fichas.",Toast.LENGTH_LONG).show();return;}
+            if(c==null&&id.isEmpty()&&hasAmbiguousNameMatches(holder)){Toast.makeText(this,"Hay varios clientes con ese nombre. Añade o revisa el DNI/NIE/CIF, teléfono o email para asociar la póliza sin riesgo de duplicar o mezclar fichas.",Toast.LENGTH_LONG).show();return;}
             boolean newClient=c==null;
             if(c==null)c=new JSONObject();
             if(!c.has("documentPhotos")) c.put("documentPhotos",new JSONArray());
@@ -928,11 +997,11 @@ public class MainActivityV2 extends FragmentActivity {
             }
             c.put("documentPhotos",clientDocs);
             c.put("holder",holder);c.put("name",holder);c.put("surname","");
-            if(!id.isEmpty())c.put("identityNumber",id); if(!address.isEmpty())c.put("address",address); if(!phone.isEmpty())c.put("phone",phone); if(!email.isEmpty())c.put("email",email);
+            if(!id.isEmpty()){c.put("identityNumber",id);c.put("identityType",cifIdentity?"CIF":id.matches("[XYZ].*")?"NIE":"DNI");if(cifIdentity)c.put("cif",id);} if(!address.isEmpty())c.put("address",address); if(!phone.isEmpty())c.put("phone",phone); if(!email.isEmpty())c.put("email",email);
             if(!birth.isEmpty()&&c.optString("birthDate","").trim().isEmpty())c.put("birthDate",birth);
             JSONArray ps=c.optJSONArray("policies");if(ps==null)ps=new JSONArray();
             JSONObject pol=new JSONObject();
-            pol.put("id",UUID.randomUUID().toString());pol.put("type","OCASO");pol.put("documentStatus",parsed.optString("documentStatus","POLIZA"));pol.put("policyType",product);pol.put("number",number);pol.put("issueDate",parsed.optString("issueDate",""));pol.put("expiry",expiry);pol.put("validityDate",expiry);pol.put("proposalValidUntil",parsed.optString("proposalValidUntil",""));pol.put("holder",holder);pol.put("identityNumber",id);pol.put("birthDate",birth);pol.put("address",address);pol.put("phone",phone);pol.put("email",email);pol.put("receipt",receiptE.getText().toString().trim());pol.put("capital",capitalE.getText().toString().trim());
+            pol.put("id",UUID.randomUUID().toString());pol.put("type","OCASO");pol.put("policyType",product);pol.put("documentStatus",parsed.optString("documentStatus","POLIZA"));pol.put("number",number);pol.put("issueDate",parsed.optString("issueDate",""));pol.put("expiry",expiry);pol.put("validityDate",expiry);pol.put("proposalValidUntil",parsed.optString("proposalValidUntil",""));pol.put("holder",holder);pol.put("identityNumber",id);pol.put("identityType",cifIdentity?"CIF":id.matches("[XYZ].*")?"NIE":id.isEmpty()?"":"DNI");pol.put("cif",cifIdentity?id:"");pol.put("birthDate",birth);pol.put("address",address);pol.put("phone",phone);pol.put("email",email);pol.put("receipt",receiptE.getText().toString().trim());pol.put("capital",capitalE.getText().toString().trim());
             if("Decesos".equalsIgnoreCase(product)){pol.put("decesos",decesosE.getText().toString().trim());pol.put("decesosLevelada",decesosLeveladaE.getText().toString().trim());}else{pol.put("decesos","");pol.put("decesosLevelada","");}
             pol.put("insured",insured==null?new JSONArray():insured);pol.put("documentUri",documentUri==null?"":documentUri.toString());pol.put("ocrText",raw);pol.put("ocrConfidence",parsed.optInt("confidence",0));pol.put("ocrWarnings",parsed.optJSONArray("warnings"));
             String localPdf="";
@@ -960,11 +1029,13 @@ public class MainActivityV2 extends FragmentActivity {
 
     private String currentPolicyProduct(String raw){
         String u=raw==null?"":raw.toUpperCase(Locale.ROOT);
+        if(u.contains("OCASO COMUNIDADES")||u.contains("SEGURO DE COMUNIDADES")||u.contains("COMUNIDADES"))return "Comunidades";
         if(u.contains("DECESOS")||u.contains("ASISTENCIA FAMILIAR"))return "Decesos";
-        if(u.contains("VIDA")||u.contains("FALLECIMIENTO"))return "Vida";
+        if(u.contains("AHORRO")||u.contains("PIAS")||u.contains("RENTA VITALICIA"))return "Ahorro";
+        if(u.contains("OCASO VIDA")||u.contains("SEGURO DE VIDA")||u.contains("VIDA"))return "Vida";
+        if(u.contains("HOGAR")||u.contains("MULTIRRIESGO HOGAR"))return "Hogar";
         if(u.contains("ACCIDENTE"))return "Accidentes";
-        if(u.contains("HOGAR"))return "Hogar";
-        if(u.contains("SALUD"))return "Salud";
+        if(u.contains("SALUD")||u.contains("ASISTENCIA SANITARIA"))return "Salud";
         if(u.contains("AUTOMOVIL")||u.contains("AUTOMÓVIL")||u.contains("VEHICULO")||u.contains("VEHÍCULO"))return "Auto";
         return "Otros";
     }
@@ -1071,6 +1142,8 @@ public class MainActivityV2 extends FragmentActivity {
     private String findId(String u){Matcher m=Pattern.compile("(?<![0-9])([0-9]{8}[A-Z])(?![A-Z0-9])").matcher(u.replaceAll("\\s+",""));while(m.find())if(validDni(m.group(1)))return m.group(1);Matcher n=Pattern.compile("(?<![A-Z0-9])([XYZ][0-9]{7}[A-Z])(?![A-Z0-9])").matcher(u.replaceAll("\\s+",""));return n.find()?n.group(1):"";}
     private boolean validDni(String v){return v.matches("[0-9]{8}[A-Z]")&&"TRWAGMYFPDXBNJZSQVHLCKE".charAt(Integer.parseInt(v.substring(0,8))%23)==v.charAt(8);}
     private boolean isValidIdentity(String v){return v.matches("[0-9]{8}[A-Z]")?validDni(v):v.matches("[XYZ][0-9]{7}[A-Z]");}
+    private boolean isValidTaxIdentity(String v){return isValidIdentity(v)||isValidCif(v);}
+    private boolean isValidCif(String v){if(v==null||!v.matches("[ABCDEFGHJNPQRSUVW][0-9]{7}[0-9A-J]"))return false;int sum=0;for(int i=1;i<=7;i++){int n=v.charAt(i)-'0';if(i%2==0)sum+=n;else{int d=n*2;sum+=d/10+d%10;}}int c=(10-sum%10)%10;char digit=(char)('0'+c),letter="JABCDEFGHI".charAt(c),kind=v.charAt(0);boolean letterOnly="PQRSNW".indexOf(kind)>=0,digitOnly="ABEH".indexOf(kind)>=0;return v.charAt(8)==(letterOnly?letter:digitOnly?digit:(v.charAt(8)==digit||v.charAt(8)==letter?v.charAt(8):' '));}
     private String findBirth(String u){Matcher m=Pattern.compile("(?<![0-9])([0-3][0-9])[/.-]([0-1][0-9])[/.-]((?:19|20)[0-9]{2})(?![0-9])").matcher(u);int yearNow=Calendar.getInstance().get(Calendar.YEAR);while(m.find()){String d=m.group(1)+"/"+m.group(2)+"/"+m.group(3);if(validDate(d)&&Integer.parseInt(m.group(3))<=yearNow-10)return d;}return "";}
     private boolean validDate(String s){try{Date d=new SimpleDateFormat("dd/MM/yyyy",Locale.ROOT).parse(s);return new SimpleDateFormat("dd/MM/yyyy",Locale.ROOT).format(d).equals(s);}catch(Exception e){return false;}}
     private String clean(String s){return s==null?"":s.trim().replaceAll("\\s+"," ");}
@@ -1176,7 +1249,7 @@ public class MainActivityV2 extends FragmentActivity {
         }
     }
 
-    private JSONObject findClientById(String id){if(id==null||id.trim().isEmpty())return null;String key=normalizeSearch(id);JSONArray a=clientsData();for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&key.equals(normalizeSearch(x.optString("identityNumber",x.optString("holderDni","")))))return x;}return null;}
+    private JSONObject findClientById(String id){if(id==null||id.trim().isEmpty())return null;String key=normalizeSearch(id);JSONArray a=clientsData();for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&(key.equals(normalizeSearch(x.optString("identityNumber",x.optString("holderDni",""))))||key.equals(normalizeSearch(x.optString("cif","")))))return x;}return null;}
     private JSONObject findClientByName(String name){String q=normalizeSearch(name);if(q.isEmpty())return null;JSONArray a=clientsData();for(int i=0;i<a.length();i++){JSONObject x=a.optJSONObject(i);if(x!=null&&normalizeSearch(clientKey(x)).equals(q))return x;}return null;}
     private JSONArray clientsData(){
         clientStoreReadFailed=false;
@@ -1204,3 +1277,4 @@ public class MainActivityV2 extends FragmentActivity {
     }
     private long daysUntil(String date){try{SimpleDateFormat f=new SimpleDateFormat("dd/MM/yyyy",Locale.ROOT);f.setLenient(false);Date d=f.parse(date);Calendar day=Calendar.getInstance();day.setTime(d);day.set(Calendar.HOUR_OF_DAY,0);day.set(Calendar.MINUTE,0);day.set(Calendar.SECOND,0);day.set(Calendar.MILLISECOND,0);Calendar today=Calendar.getInstance();today.set(Calendar.HOUR_OF_DAY,0);today.set(Calendar.MINUTE,0);today.set(Calendar.SECOND,0);today.set(Calendar.MILLISECOND,0);return (day.getTimeInMillis()-today.getTimeInMillis())/86400000L;}catch(Exception e){return Long.MIN_VALUE;}}
 }
+
