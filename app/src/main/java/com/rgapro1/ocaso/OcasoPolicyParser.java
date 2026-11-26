@@ -16,6 +16,7 @@ public final class OcasoPolicyParser {
     private static final String DNI_LETTERS = "TRWAGMYFPDXBNJZSQVHLCKE";
     private static final Pattern DNI = Pattern.compile("(?<![A-Z0-9])(?:[0-9]{8}[A-Z]|[XYZ][0-9]{7}[A-Z])(?![A-Z0-9])");
     private static final Pattern DNI_SPACED = Pattern.compile("(?<![0-9])([0-9]{4})\\s*([0-9]{4})\\s*([A-Z])(?![A-Z0-9])");
+    private static final Pattern DNI_TOKEN = Pattern.compile("(?<![A-Z0-9])(?:([0-9](?:[\\s.-]*[0-9]){7})[\\s.-]*([A-Z])|([XYZ])[\\s.-]*([0-9](?:[\\s.-]*[0-9]){6})[\\s.-]*([A-Z]))(?![A-Z0-9])");
     private static final Pattern DATE = Pattern.compile("(?<![0-9])([0-3]?[0-9])\\s*[/.-]\\s*([0-1]?[0-9])\\s*[/.-]\\s*((?:19|20)[0-9]{2})(?![0-9])");
     private static final Pattern PHONE = Pattern.compile("(?<![0-9])([6789][0-9]{8})(?![0-9])");
     private static final Pattern EMAIL = Pattern.compile("[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}");
@@ -83,8 +84,26 @@ public final class OcasoPolicyParser {
     }
     private static String extractAddress(String[] lines){
         int[] b=policyholderBounds(lines);if(b[0]<0)return "";String[] labels={"DIRECCION:","DIRECCIÓN:","DIRECCION","DIRECCIÓN","DOMICILIO DEL TOMADOR","DOMICILIO"};
-        for(int i=b[0];i<b[1];i++)for(String label:labels){int p=lines[i].indexOf(label);if(p<0)continue;String v=cutAtNextLabel(clean(lines[i].substring(p+label.length())));if(looksLikeAddress(v)&&!isOcasoAddressStrict(v)&&!isNonClientAddress(v))return v;for(int j=i+1;j<Math.min(i+4,b[1]);j++){v=cutAtNextLabel(clean(lines[j]));if(!isFieldLabelOnly(v)&&looksLikeAddress(v)&&!isOcasoAddressStrict(v)&&!isNonClientAddress(v))return v;}}
+        for(int i=b[0];i<b[1];i++)for(String label:labels){int p=lines[i].indexOf(label);if(p<0)continue;String v=cutAtNextLabel(clean(lines[i].substring(p+label.length())));if(isClientAddressCandidate(v))return completeAddress(v,lines,i,b[1]);for(int j=i+1;j<Math.min(i+5,b[1]);j++){v=cutAtNextLabel(clean(lines[j]));if(!isFieldLabelOnly(v)&&isClientAddressCandidate(v))return completeAddress(v,lines,j,b[1]);}}
         return "";
+    }
+    private static String completeAddress(String address,String[] lines,int lineIndex,int end){
+        if(lineIndex+1>=end)return address;
+        String next=cutAtNextLabel(clean(lines[lineIndex+1]));
+        if(next.matches("[0-9]{5}\\s+[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ .'-]{1,50}")&&!isDocumentIdentityField(next))return clean(address+" "+next);
+        return address;
+    }
+    private static boolean isClientAddressCandidate(String value){
+        return !isDocumentIdentityField(value)&&looksLikeAddress(value)
+                &&!isOcasoAddressStrict(value)&&!isNonClientAddress(value);
+    }
+    private static boolean isDocumentIdentityField(String value){
+        String s=clean(value).toUpperCase(Locale.ROOT);
+        String words=s.replaceAll("[^A-Z0-9]+"," ").trim();
+        if(words.contains("DOC ID")||words.matches(".*(?:^| )(?:DNI|NIE|NIF|DOCUMENTO|IDENTIFICACION)(?: |$).*") )return true;
+        String compact=s.replaceAll("[^A-Z0-9]","");Matcher m=DNI.matcher(compact);
+        while(m.find())if(isValidIdentity(m.group()))return true;
+        return false;
     }
     private static String extractRiskAddress(String[] lines){
         for(int i=0;i<lines.length;i++)if(lines[i].contains("DIRECCION DEL RIESGO")||lines[i].contains("DIRECCIÓN DEL RIESGO")){
@@ -92,8 +111,8 @@ public final class OcasoPolicyParser {
             for(int j=i+1;j<end;j++){
                 String line=lines[j];int p=line.indexOf("DIRECCION");if(p<0)p=line.indexOf("DIRECCIÓN");
                 String value=p>=0?clean(line.substring(p+"DIRECCION".length())):clean(line);value=cutAtNextLabel(value);
-                if(looksLikeAddress(value)&&!isOcasoAddressStrict(value)&&!isNonClientAddress(value))return value;
-                if(p>=0&&j+1<end){value=cutAtNextLabel(clean(lines[j+1]));if(looksLikeAddress(value)&&!isOcasoAddressStrict(value)&&!isNonClientAddress(value))return value;}
+                if(isClientAddressCandidate(value))return completeAddress(value,lines,j,end);
+                if(p>=0&&j+1<end){value=cutAtNextLabel(clean(lines[j+1]));if(isClientAddressCandidate(value))return completeAddress(value,lines,j+1,end);}
             }
         }
         return "";
@@ -102,7 +121,7 @@ public final class OcasoPolicyParser {
         ArrayList<Candidate> c=new ArrayList<>();String[] labels={"DNI","NIE","DOC ID","DOC. ID","DOCUMENTO","IDENTIFICACION","IDENTIFICACIÓN","TOMADOR","SOLICITANTE"};
         int[] project=projectBounds(lines);if(project[0]>=0)collectIdentityCandidates(c,lines,project,labels);
         if(c.isEmpty()){int[] b=policyholderBounds(lines);if(b[0]>=0)collectIdentityCandidates(c,lines,b,labels);}
-        Collections.sort(c,new Comparator<Candidate>(){public int compare(Candidate a,Candidate b){return b.score-a.score;}});for(Candidate x:c)if(isValidIdentity(x.value))return x.value;return "";
+        Collections.sort(c,new Comparator<Candidate>(){public int compare(Candidate a,Candidate b){return b.score-a.score;}});for(Candidate x:c)if(isValidIdentity(x.value))return x.value;for(Candidate x:c)if(isIdentityFormat(x.value))return x.value;return "";
     }
     private static void collectIdentityCandidates(ArrayList<Candidate> candidates,String[] lines,int[] bounds,String[] labels){
         for(int i=bounds[0];i<bounds[1];i++){boolean near=false;for(String label:labels)if(lines[i].contains(label)){near=true;break;}if(near)for(int j=i;j<Math.min(i+3,bounds[1]);j++)addIdentityCandidates(candidates,lines[j],j,labels);}
@@ -139,7 +158,17 @@ public final class OcasoPolicyParser {
         for(int i=0;i<lines.length;i++)for(String label:labels){int p=lines[i].indexOf(label);if(p<0)continue;Matcher m=DATE.matcher(lines[i].substring(p+label.length()));if(m.find()){String d=normalizeDate(m.group());if(validDate(d))return d;}if(i+1<lines.length){m=DATE.matcher(lines[i+1]);if(m.find()){String d=normalizeDate(m.group());if(validDate(d))return d;}}}
         return "";
     }
-    private static void addIdentityCandidates(ArrayList<Candidate> out,String source,int lineIndex,String... labels){Matcher m=DNI.matcher(source);while(m.find())out.add(identityCandidate(m.group(),source,lineIndex,labels));m=DNI_SPACED.matcher(source);while(m.find())out.add(identityCandidate(m.group(1)+m.group(2)+m.group(3),source,lineIndex,labels));String compact=source.toUpperCase(Locale.ROOT).replace('O','0').replace('I','1').replace('L','1');m=DNI.matcher(compact);while(m.find())out.add(identityCandidate(m.group(),source,lineIndex,labels));}
+    private static void addIdentityCandidates(ArrayList<Candidate> out,String source,int lineIndex,String... labels){
+        Matcher m=DNI.matcher(source);while(m.find())out.add(identityCandidate(m.group(),source,lineIndex,labels));
+        m=DNI_SPACED.matcher(source);while(m.find())out.add(identityCandidate(m.group(1)+m.group(2)+m.group(3),source,lineIndex,labels));
+        m=DNI_TOKEN.matcher(source);while(m.find()){
+            String value=m.group(1)!=null?m.group(1).replaceAll("[\\s.-]","")+m.group(2)
+                    :m.group(3)+m.group(4).replaceAll("[\\s.-]","")+m.group(5);
+            out.add(identityCandidate(value,source,lineIndex,labels));
+        }
+        String compact=source.toUpperCase(Locale.ROOT).replace('O','0').replace('I','1').replace('L','1');
+        m=DNI.matcher(compact);while(m.find())out.add(identityCandidate(m.group(),source,lineIndex,labels));
+    }
     private static Candidate identityCandidate(String value,String source,int lineIndex,String... labels){int score=isValidIdentity(value)?100:5;String s=source.toUpperCase(Locale.ROOT);for(String l:labels)if(!l.isEmpty()&&s.contains(l))score+=40;if(s.contains("TOMADOR"))score+=25;return new Candidate(value,score-Math.min(lineIndex,20));}
     private static String extractPhone(String text,String[] lines){int[] project=projectBounds(lines);if(project[0]>=0)for(int i=project[0];i<project[1];i++)if(lines[i].contains("TELEFONO")||lines[i].contains("TELÉFONO")||lines[i].contains("MOVIL")||lines[i].contains("MÓVIL")){for(int j=i;j<Math.min(i+3,project[1]);j++){Matcher m=PHONE.matcher(lines[j].replaceAll("[ .-]","").replace("+34",""));if(m.find()&&!isOcasoPhone(m.group(1)))return m.group(1);}}int[] b=policyholderBounds(lines);if(b[0]>=0)for(int i=b[0];i<b[1];i++){String u=lines[i];if(!(u.contains("MEDIOS DE CONTACTO")||u.contains("MEDIO/S DE CONTACTO")||u.contains("TELEFONO")||u.contains("TELÉFONO")||u.contains("MOVIL")||u.contains("MÓVIL")))continue;for(int j=i;j<Math.min(i+3,b[1]);j++){Matcher m=PHONE.matcher(lines[j].replaceAll("[ .-]","").replace("+34",""));if(m.find()&&!isOcasoPhone(m.group(1)))return m.group(1);}}return "";}
     private static String extractEmail(String text,String[] lines){int[] project=projectBounds(lines);if(project[0]>=0)for(int i=project[0];i<project[1];i++){Matcher m=EMAIL.matcher(lines[i]);if(m.find())return m.group();}int[] b=policyholderBounds(lines);if(b[0]>=0)for(int i=b[0];i<b[1];i++){String u=lines[i];if(!(u.contains("EMAIL")||u.contains("E-MAIL")||u.contains("CORREO")))continue;Matcher m=EMAIL.matcher(u);if(m.find())return m.group();}return "";}
@@ -150,7 +179,7 @@ public final class OcasoPolicyParser {
         for(int i=b[0];i<b[1];i++){ArrayList<String> ids=identityValues(lines[i]);if(ids.isEmpty())continue;String id=ids.get(0);if(seen.contains(id))continue;String name=personAround(lines,i,b[0],b[1]),birth=dateAround(lines,i,b[0],b[1]);if(name.isEmpty()&&birth.isEmpty())continue;try{JSONObject x=new JSONObject();x.put("name",name);x.put("identityNumber",id);x.put("birthDate",birth);result.put(x);seen.add(id);}catch(Exception ignored){}}
         return result;
     }
-    private static ArrayList<String> identityValues(String line){ArrayList<String> r=new ArrayList<>();Matcher m=DNI.matcher(line);while(m.find())r.add(m.group());Matcher s=DNI_SPACED.matcher(line);while(s.find())r.add(s.group(1)+s.group(2)+s.group(3));return r;}
+    private static ArrayList<String> identityValues(String line){ArrayList<String> r=new ArrayList<>();Matcher m=DNI.matcher(line);while(m.find())r.add(m.group());Matcher s=DNI_SPACED.matcher(line);while(s.find())r.add(s.group(1)+s.group(2)+s.group(3));m=DNI_TOKEN.matcher(line);while(m.find()){if(m.group(1)!=null)r.add(m.group(1).replaceAll("[\\s.-]","")+m.group(2));else r.add(m.group(3)+m.group(4).replaceAll("[\\s.-]","")+m.group(5));}return r;}
     private static String personAround(String[] lines,int i,int from,int to){for(int idx:new int[]{i,i-1,i+1}){if(idx<from||idx>=to)continue;String v=clean(lines[idx]).replaceAll("(?i)(DNI|NIE|DOC\\.? ID|DOCUMENTO)[ :.-]*[0-9A-Z]+","");v=cutAtNextLabel(v);if(isPlausiblePerson(v)&&!isCompanyOrOffice(v))return v;}return "";}
     private static String dateAround(String[] lines,int i,int from,int to){for(int idx:new int[]{i,i-1,i+1}){if(idx<from||idx>=to)continue;Matcher m=DATE.matcher(lines[idx]);while(m.find()){String d=normalizeDate(m.group());if(validDate(d))return d;}}return "";}
 
@@ -167,13 +196,14 @@ public final class OcasoPolicyParser {
     private static String normalize(String raw){if(raw==null)return "";String s=raw.toUpperCase(Locale.ROOT).replace('\r','\n').replace('\u00A0',' ');s=s.replace("N°","Nº").replace("P0LIZA","POLIZA").replace("T0MADOR","TOMADOR").replace("RECIB0","RECIBO").replace("CAPlTAL","CAPITAL").replace("DECES0S","DECESOS").replace("DOMlCILIO","DOMICILIO").replace("DIRECClON","DIRECCION").replace("TELEF0NO","TELEFONO");return s.replaceAll("[ \\t]+"," ").replaceAll("\\n{2,}","\\n").trim();}
     private static String clean(String s){return s==null?"":s.trim().replaceAll("\\s+"," ");}
     private static String stripIdentityAndNoise(String s){String v=clean(s);v=v.replaceAll("(?i)(DOC\\.?\\s*ID|DNI|NIE|DOCUMENTO)[ :.-]*[0-9A-Z]{8,9}","");return cutAtNextLabel(v).replaceAll("^[ :;,-]+|[ :;,-]+$","").trim();}
-    private static String cutAtNextLabel(String s){String v=clean(s);String[] labels={"DOC ID","DNI","NIE","DIRECCION","DOMICILIO","TELEFONO","TEL","EMAIL","CORREO","RECIBO","PRIMA","CAPITAL","TOTAL","Nº POLIZA","POLIZA"};int cut=v.length();for(String l:labels){int p=v.indexOf(l);if(p>0)cut=Math.min(cut,p);}return clean(v.substring(0,cut));}
+    private static String cutAtNextLabel(String s){String v=clean(s);String[] labels={"DOC. ID","DOC ID","DOCUMENTO DE IDENTIDAD","DNI","NIE","NIF","IDENTIFICACION","DIRECCION","DOMICILIO","TELEFONO","TEL","EMAIL","CORREO","RECIBO","PRIMA","CAPITAL","TOTAL","Nº POLIZA","POLIZA"};int cut=v.length();for(String l:labels){int p=v.indexOf(l);if(p>0)cut=Math.min(cut,p);}return clean(v.substring(0,cut));}
     private static boolean isPlausiblePerson(String s){if(s==null)return false;String v=clean(s);if(v.length()<5||v.length()>100||v.matches(".*\\d{4,}.*"))return false;String[] w=v.split(" ");return w.length>=2&&!v.contains("POLIZA")&&!v.contains("RECIBO")&&!v.contains("CAPITAL");}
     private static boolean looksLikeAddress(String s){if(s==null||s.length()<5)return false;return s.matches(".*[A-ZÁÉÍÓÚÑ].*")&&(s.matches(".*\\d+.*")||s.contains("CALLE")||s.contains("AVENIDA")||s.contains("PLAZA")||s.contains("C/"));}
     private static boolean looksLikePhone(String s){return s!=null&&s.matches("[6789][0-9]{8}");}
     private static boolean looksLikeDateNumber(String s){return s!=null&&s.matches("[0-3][0-9][0-1][0-9](19|20)[0-9]{2}");}
     private static boolean looksLikeMoneyNumber(String s){return s!=null&&s.length()>=6&&s.matches("[0-9]{6,}");}
     private static boolean isValidIdentity(String v){if(v==null)return false;if(v.matches("[0-9]{8}[A-Z]"))try{return DNI_LETTERS.charAt(Integer.parseInt(v.substring(0,8))%23)==v.charAt(8);}catch(Exception ignored){return false;}if(v.matches("[XYZ][0-9]{7}[A-Z]")){String n=(v.charAt(0)=='X'?"0":v.charAt(0)=='Y'?"1":"2")+v.substring(1,8);try{return DNI_LETTERS.charAt(Integer.parseInt(n)%23)==v.charAt(8);}catch(Exception ignored){return false;}}return false;}
+    private static boolean isIdentityFormat(String v){return v!=null&&(v.matches("[0-9]{8}[A-Z]")||v.matches("[XYZ][0-9]{7}[A-Z]"));}
     private static String normalizeMoney(String s){String v=clean(s).replace(" ","");if(v.contains(",")&&v.contains(".")){if(v.lastIndexOf(',')>v.lastIndexOf('.'))v=v.replace(".","").replace(',','.');else v=v.replace(",","");}else if(v.contains(","))v=v.replace(',','.');else if(v.matches("[0-9]{1,3}\\.[0-9]{3}"))v=v.replace(".","");return v;}
     private static boolean isPlausibleMoney(String s){try{double d=Double.parseDouble(s);return d>=0&&d<100000000;}catch(Exception e){return false;}}
     private static boolean validDate(String s){Matcher m=DATE.matcher(s);if(!m.find())return false;try{int d=Integer.parseInt(m.group(1)),mo=Integer.parseInt(m.group(2)),y=Integer.parseInt(m.group(3));if(mo<1||mo>12||d<1||y<1900||y>2100)return false;int max=mo==2?((y%4==0&&(y%100!=0||y%400==0))?29:28):((mo==4||mo==6||mo==9||mo==11)?30:31);return d<=max;}catch(Exception e){return false;}}
@@ -183,3 +213,4 @@ public final class OcasoPolicyParser {
     private static boolean isDecesos(String product){return "Decesos".equalsIgnoreCase(product);}
     private static final class Candidate{final String value;final int score;Candidate(String value,int score){this.value=value;this.score=score;}}
 }
+
