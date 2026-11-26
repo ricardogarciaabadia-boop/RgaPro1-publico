@@ -537,9 +537,9 @@ public class MainActivityV2 extends FragmentActivity {
     }
     private String extractNameRobust(String text){
         String u=normalizeOcrIdentity(text);
-        Matcher m=Pattern.compile("(?m)^APELLIDOS?\\s*[:.-]?\\s*(.+?)(?=\\n(?:NOMBRE|SEXO|NACIONALIDAD|NACIMIENTO)|$)").matcher(u);
+        Matcher m=Pattern.compile("(?m)^APELLIDOS?\\s*[:.-]?\\s*(.+?)(?=\\n(?:NOMBRE|SEXO|NACIONALIDAD|NACIMIENTO|DNI|NIE|DOCUMENTO|IDESP)|\\s+(?:DNI|NIE|DOCUMENTO|IDESP)\\b|$)").matcher(u);
         String sur=m.find()?m.group(1).trim():"";
-        m=Pattern.compile("(?m)^NOMBRES?\\s*[:.-]?\\s*(.+?)(?=\\n(?:SEXO|NACIONALIDAD|NACIMIENTO)|$)").matcher(u);
+        m=Pattern.compile("(?m)^NOMBRES?\\s*[:.-]?\\s*(.+?)(?=\\n(?:SEXO|NACIONALIDAD|NACIMIENTO|DNI|NIE|DOCUMENTO|IDESP)|\\s+(?:DNI|NIE|DOCUMENTO|IDESP)\\b|$)").matcher(u);
         String nam=m.find()?m.group(1).trim():"";
         m=Pattern.compile("([A-ZÁÉÍÓÚÑ]+(?:<[A-ZÁÉÍÓÚÑ]+)+)<<([A-ZÁÉÍÓÚÑ]+(?:<[A-ZÁÉÍÓÚÑ]+)+)").matcher(u.replace(" ",""));
         if(m.find()){if(sur.isEmpty())sur=m.group(1).replace('<',' ').trim();if(nam.isEmpty())nam=m.group(2).replace('<',' ').trim();}
