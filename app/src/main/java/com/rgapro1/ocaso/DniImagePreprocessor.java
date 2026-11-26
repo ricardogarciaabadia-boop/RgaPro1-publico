@@ -58,8 +58,8 @@ public final class DniImagePreprocessor {
             if(edge[start]==0||seen[start])continue; int head=0,tail=0,minX=dw,minY=dh,maxX=-1,maxY=-1,area=0; q[tail++]=start;seen[start]=true;
             while(head<tail){int idx=q[head++],x=idx%dw,y=idx/dw;area++;if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;
                 int a=idx-1,b=idx+1,c=idx-dw,d=idx+dw;if(x>0&&edge[a]!=0&&!seen[a]){seen[a]=true;q[tail++]=a;}if(x+1<dw&&edge[b]!=0&&!seen[b]){seen[b]=true;q[tail++]=b;}if(y>0&&edge[c]!=0&&!seen[c]){seen[c]=true;q[tail++]=c;}if(y+1<dh&&edge[d]!=0&&!seen[d]){seen[d]=true;q[tail++]=d;}}
-            int cw=maxX-minX+1,ch=maxY-minY+1;float ar=ch<=0?0:cw/(float)ch,ratio=area/(float)(dw*dh);
-            if(area>bestArea&&ratio>0.015f&&ratio<0.80f&&ar>1.05f&&ar<2.45f&&cw>dw*.20f&&ch>dh*.10f){bestArea=area;bx=minX;by=minY;bw=cw;bh=ch;}
+            int cw=maxX-minX+1,ch=maxY-minY+1;float ar=ch<=0?0:cw/(float)ch,shape=ar<1f&&ar>0f?1f/ar:ar,ratio=area/(float)(dw*dh);
+            if(area>bestArea&&ratio>0.015f&&ratio<0.80f&&shape>1.05f&&shape<2.45f&&cw>dw*.20f&&ch>dh*.10f){bestArea=area;bx=minX;by=minY;bw=cw;bh=ch;}
         }
         thumb.recycle(); if(bestArea==0)return source;
         int pxPad=Math.max(10,Math.round(bw*.08f)),pyPad=Math.max(10,Math.round(bh*.08f));
@@ -79,3 +79,4 @@ public final class DniImagePreprocessor {
     private static byte[] erode(byte[] in,int w,int h,int r){byte[] out=new byte[in.length];for(int y=0;y<h;y++)for(int x=0;x<w;x++){byte v=1;for(int yy=Math.max(0,y-r);yy<=Math.min(h-1,y+r)&&v!=0;yy++)for(int xx=Math.max(0,x-r);xx<=Math.min(w-1,x+r);xx++)if(in[yy*w+xx]==0){v=0;break;}out[y*w+x]=v;}return out;}
     private static Bitmap limitSize(Bitmap source,int max){int l=Math.max(source.getWidth(),source.getHeight());if(l<=max)return source;float s=max/(float)l;return Bitmap.createScaledBitmap(source,Math.round(source.getWidth()*s),Math.round(source.getHeight()*s),true);}
 }
+
